@@ -57,10 +57,14 @@ if(NOT TARGET stralgo::stralgo)
   add_library(stralgo::stralgo ALIAS stralgo)
 endif()
 
-# no module has sources yet: an INTERFACE target carries what every plugin's code compiles with; with the first
-# sources it becomes a STATIC library and these settings PUBLIC
+# the build steps the plugins share: edplugin_common_version, edplugin_common_pin, edplugin_common_fxc
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
+
+# the modules are headers only so far: an INTERFACE target carries them and what every plugin's code compiles with;
+# with the first sources it becomes a STATIC library and these settings PUBLIC
 add_library(edplugin_common INTERFACE)
 add_library(edplugin_common::edplugin_common ALIAS edplugin_common)
+target_include_directories(edplugin_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(edplugin_common INTERFACE cxx_std_23)
 target_compile_definitions(edplugin_common INTERFACE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(edplugin_common INTERFACE stralgo::stralgo)
@@ -69,7 +73,8 @@ if(PROJECT_IS_TOP_LEVEL)
   option(EDPLUGIN_COMMON_TESTS "build the test programs (tools/test.sh runs them under wine)" ON)
   if(EDPLUGIN_COMMON_TESTS)
     # the library's own checks: a plain program, without d3d11 or dxgi
-    add_executable(edplugin_common_test test/library_test.cc)
+    # each header alone in a translation unit of its own: it includes what it needs
+    add_executable(edplugin_common_test test/library_test.cc test/alone_lock.cc test/alone_once_flag.cc test/alone_format.cc)
     target_link_libraries(edplugin_common_test PRIVATE edplugin_common::edplugin_common)
     target_compile_options(edplugin_common_test PRIVATE /W4)
   endif()

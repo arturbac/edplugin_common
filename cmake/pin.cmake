@@ -1,0 +1,106 @@
+# Run at build time, at every build (cmake -DCLONE=<the library's clone> -DPIN=<the plugin's edplugin_common.commit>
+# -DSRC=<the plugin's checkout> -DOUT=<header> -P pin.cmake): checks that the clone of edplugin_common in the plugin
+# stands on the commit the plugin pins, without uncommitted changes, and writes the header with
+# EDPLUGIN_COMMON_COMMIT defined to what was built: "<the clone's short hash>", with "-dirty" when its tracked files
+# differ from its HEAD, with " (pinned <short hash>)" when that is not the pinned commit; "unknown" when there is no
+# pin file, git cannot read the clone, or the clone is no git checkout of its own (git would read the plugin's).
+# Rewritten only when it changes. Any of these is a warning; in a release build of the plugin (as in version.cmake:
+# HEAD on a tag vX.Y.Z, a pre-release tag vX.Y.Z-beta.N too, no uncommitted changes) it is an error. A plugin runs it
+# through edplugin_common_pin() (edplugin_common.cmake).
+function(git_in dir var err_var)
+  execute_process(COMMAND git --no-optional-locks ${ARGN}
+                  WORKING_DIRECTORY "${dir}"
+                  OUTPUT_VARIABLE out OUTPUT_STRIP_TRAILING_WHITESPACE
+                  ERROR_VARIABLE err ERROR_STRIP_TRAILING_WHITESPACE
+                  RESULT_VARIABLE rc)
+  if(NOT rc EQUAL 0)
+    if(err STREQUAL "")
+      set(err "git ${ARGN}: ${rc}")
+    endif()
+    set(${var} "" PARENT_SCOPE)
+    set(${err_var} "${err}" PARENT_SCOPE)
+  else()
+    set(${var} "${out}" PARENT_SCOPE)
+    set(${err_var} "" PARENT_SCOPE)
+  endif()
+endfunction()
+
+# a release build of the plugin
+set(release FALSE)
+git_in("${SRC}" plugin_head err rev-parse HEAD)
+if(NOT plugin_head STREQUAL "")
+  git_in("${SRC}" plugin_changes changes_err status --porcelain --untracked-files=no)
+  git_in("${SRC}" plugin_exact err describe --tags --exact-match --match "v[0-9]*" HEAD)
+  if(changes_err STREQUAL "" AND plugin_changes STREQUAL "" AND NOT plugin_exact STREQUAL "")
+    set(release TRUE)
+  endif()
+endif()
+
+set(problems "")
+set(pin "")
+if(NOT EXISTS "${PIN}")
+  string(APPEND problems "\n  no ${PIN}: the plugin pins no commit of edplugin_common")
+else()
+  file(READ "${PIN}" pin)
+  string(STRIP "${pin}" pin)
+  if(NOT pin MATCHES "^[0-9a-f]+$" OR NOT pin MATCHES "^........................................$")
+    string(APPEND problems "\n  ${PIN} holds '${pin}', not a full commit (40 hexadecimal digits)")
+    set(pin "")
+  endif()
+endif()
+
+set(text unknown)
+git_in("${CLONE}" top err rev-parse --show-toplevel)
+if(top STREQUAL "")
+  string(APPEND problems "\n  git cannot read the clone ${CLONE}: ${err}")
+else()
+  file(REAL_PATH "${top}" top_real)
+  file(REAL_PATH "${CLONE}" clone_real)
+  if(NOT top_real STREQUAL clone_real)
+    string(APPEND problems "\n  ${CLONE} is no git checkout of its own (git reads ${top})")
+  else()
+    git_in("${CLONE}" head err rev-parse HEAD)
+    git_in("${CLONE}" short short_err rev-parse --short=7 HEAD)
+    git_in("${CLONE}" changes changes_err status --porcelain --untracked-files=no)
+    if(head STREQUAL "" OR short STREQUAL "")
+      string(APPEND problems "\n  git cannot read the clone's commit: ${err}${short_err}")
+    elseif(NOT pin STREQUAL "")
+      set(text "${short}")
+      if(NOT changes_err STREQUAL "")
+        string(APPEND text "-dirty")
+        string(APPEND problems "\n  git cannot tell the clone's changes: ${changes_err}")
+      elseif(NOT changes STREQUAL "")
+        string(APPEND text "-dirty")
+        string(APPEND problems "\n  the clone ${CLONE} has uncommitted changes")
+      endif()
+      if(NOT head STREQUAL pin)
+        string(SUBSTRING "${pin}" 0 7 pin_short)
+        string(APPEND text " (pinned ${pin_short})")
+        git_in("${CLONE}" found found_err cat-file -t "${pin}^{commit}")
+        if(found STREQUAL "")
+          string(APPEND problems "\n  the pinned commit ${pin} is not in the clone: git -C edplugin_common fetch origin "
+                                 "(from where the clone came), then git -C edplugin_common checkout ${pin}")
+        else()
+          string(APPEND problems "\n  the clone is at ${head}, the plugin pins ${pin}: git -C edplugin_common checkout ${pin}")
+        endif()
+      endif()
+    endif()
+  endif()
+endif()
+
+set(header "#pragma once\n#define EDPLUGIN_COMMON_COMMIT \"${text}\"\n")
+set(old "")
+if(EXISTS "${OUT}")
+  file(READ "${OUT}" old)
+endif()
+if(NOT old STREQUAL header)
+  file(WRITE "${OUT}" "${header}")
+endif()
+
+if(NOT problems STREQUAL "")
+  if(release)
+    message(FATAL_ERROR "edplugin_common, in a release build:${problems}")
+  else()
+    message(WARNING "edplugin_common:${problems}")
+  endif()
+endif()
