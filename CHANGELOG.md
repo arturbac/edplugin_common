@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
+- First release.
 - The modules `core` (`exclusive_lock_t`, `shared_lock_t`, `once_flag_t`) and `text` (`wide`, `utf8`, `as_unsigned`,
   their `std::formatter`s, `try_format_into`), headers taken from the plugins. `utf8` ends on bytes that are not
   UTF-8: a piece goes back at most 3 continuation bytes (before, 240 or more of them in a row made an endless

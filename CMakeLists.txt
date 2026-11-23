@@ -4,7 +4,7 @@
 # top-level project. Built on Linux with clang-cl against MSVC's and the Windows SDK's headers and libraries
 # (cmake/clang-cl-msvc-sdk.cmake, MSVC_ROOT); the tests run under wine (tools/test.sh).
 cmake_minimum_required(VERSION 3.29)
-project(edplugin_common LANGUAGES CXX)
+project(edplugin_common VERSION 1.0.0 LANGUAGES CXX)
 
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
   message(FATAL_ERROR "edplugin_common builds with clang-cl: configure with a preset or "

@@ -103,8 +103,17 @@ top-level project.
 - To another pinned commit: `git -C edplugin_common fetch origin` (from where the clone came), then
   `git -C edplugin_common checkout $(cat edplugin_common.commit)`. A build directory made before the toolchain moved
   into the clone keeps the old path: configure it again with `--fresh`.
-- Push order: the library's commit is on GitHub before a plugin whose `edplugin_common.commit` names it.
+- Push order: the library's commit is on GitHub before a plugin whose `edplugin_common.commit` names it; a release's
+  tag `vX.Y.Z` is pushed by itself (a push of the branch does not take it).
 - After a test one wineserver stays 600 s for the next one; `wineserver -k` with the same `WINEPREFIX` ends it.
+
+## Versions
+
+The version is in `project()` in `CMakeLists.txt`; a release is an annotated tag `vX.Y.Z` on the release's commit,
+with its notes in `CHANGELOG.md`. A plugin pins a full commit (`edplugin_common.commit`), not a version: the tag only
+names the commit, and the pin check compares hashes. A published tag is not moved; a correction is a new version.
+The numbers count the library's releases and are not semantic versioning: what a plugin builds with is its pinned
+commit, so a change of the API can come in a 1.x release, and `CHANGELOG.md` always describes it.
 
 ## Build and test
 
@@ -124,5 +133,5 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
 d3d11 or dxgi) under wine, each in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
-One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option `EDPLUGIN_COMMON_TESTS` (ON by default) turns the
-test program off.
+One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
+`EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.
