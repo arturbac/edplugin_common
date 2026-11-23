@@ -57,7 +57,8 @@ if(NOT TARGET stralgo::stralgo)
   add_library(stralgo::stralgo ALIAS stralgo)
 endif()
 
-# the build steps the plugins share: edplugin_common_version, edplugin_common_pin, edplugin_common_fxc
+# the build steps the plugins share: edplugin_common_version, edplugin_common_pin, edplugin_common_fxc,
+# edplugin_common_proxy_exports
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
 # the modules are headers only so far: an INTERFACE target carries them and what every plugin's code compiles with;

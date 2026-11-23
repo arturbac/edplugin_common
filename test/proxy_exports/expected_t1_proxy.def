@@ -1,0 +1,7 @@
+; t1 proxy exports, made by edplugin_common_proxy_exports from list.txt
+EXPORTS
+    Alpha = t1_proxy_thunk_0
+    Beta = t1_proxy_thunk_1
+    Gamma = t1_proxy_thunk_2
+    Wrapped1 = t1_proxy_impl_Wrapped1
+    Wrapped2 = t1_proxy_impl_Wrapped2

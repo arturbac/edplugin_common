@@ -10,3 +10,5 @@
   `edplugin_common.commit` at every build; a warning, an error in a release build) and `edplugin_common_fxc`;
   `cmake/version.cmake` moved here from the plugins.
 - Tests: `test/pin_test.sh` (without wine) and the modules' checks in `edplugin_common_test.exe`.
+- `edplugin_common_proxy_exports`: the exports of a proxy dll (`.def`, MASM thunks, a header with the slots' names)
+  from a list of names, at configure time in CMake alone; test `test/proxy_exports_test.sh` (without wine).

@@ -69,6 +69,30 @@ top-level project.
 - `edplugin_common_fxc(<out> <profile> <entry> <variable> <source> [fxc options...])`: a header with the shader
   compiled by the Windows SDK's `fxc.exe` under wine; wine and fxc are looked for at the first call (cache
   `EDPLUGIN_COMMON_WINE`, `EDPLUGIN_COMMON_FXC`: the newest fxc in `MSVC_ROOT` unless set).
+- `edplugin_common_proxy_exports(<tag> <list> [WRAP <name>...])`: the exports of a dll that stands in for a system dll
+  (a `d3d11.dll` proxy: tag `d3d11`), made at configure time from `<list>`, a text file relative to the calling
+  directory: one export name a line, `#` starts a comment anywhere in a line, spaces and empty lines are ignored. In
+  `<build>/gen`:
+  - `<tag>_proxy.def`: each name not in `WRAP` exported as `<tag>_proxy_thunk_<i>`, each `WRAP` name as
+    `<tag>_proxy_impl_<name>`; no ordinals (the linker numbers the names in alphabetical order).
+  - `<tag>_proxy_thunks.asm` (MASM): the slot table `<tag>_proxy_real_procs`, one pointer for each name not in `WRAP`;
+    `<tag>_proxy_thunk_<i>`, one indirect `jmp` through slot `i` (no prologue: the caller's frame and arguments reach
+    the target unchanged, whatever its signature), where `i` counts the names not in `WRAP` in the list's order; and
+    `<tag>_proxy_unresolved`, which returns 0.
+  - `<tag>_proxy.h`: `<tag>_proxy_names` (the names of the slots, in their order), `<tag>_proxy_count`, and the C
+    declarations of `<tag>_proxy_real_procs` and `<tag>_proxy_unresolved`.
+
+  The plugin adds `${<tag>_PROXY_ASM}` and `${<tag>_PROXY_DEF}` to its dll's sources (`<tag>_PROXY_HEADER` names the
+  header; the `gen` directory is on the include path through `edplugin_common_pin`), fills every slot before the first
+  call (`GetProcAddress` on the next module by the name in `<tag>_proxy_names`, `<tag>_proxy_unresolved` where it has
+  none) and declares and defines `extern "C"` `<tag>_proxy_impl_<name>` with that function's signature for each `WRAP`
+  name. A file is rewritten only when its text changes, so an unchanged list rebuilds nothing; a change of the list,
+  or a deleted output, configures again. Errors, with the list's line where there is one, and nothing written: a tag
+  or name that is not a C identifier (decorated names with `@` or `?` are not supported; a `.def` keyword such as
+  `DATA`, `PRIVATE` or `NONAME` is not refused and does not belong in the list), a name twice, a `WRAP` name
+  twice or not in the list, a list without names or with every name in `WRAP`, `;`, `[`, `]` or a byte outside ASCII
+  in the list. The output follows the layout of the export thunks of the
+  [EDVR unofficial patch](https://github.com/characterecho-sean/edvr-unofficial-patch) (MIT); no code of it is here.
 - The plugin sets the MSVC runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static `/MT`) and the debug information format
   before `add_subdirectory`; the library sets them itself only as the top-level project.
 - CPM comes with the library (`cpmaddpackage` is there after `add_subdirectory`); stralgo and small_vectors are
@@ -97,7 +121,8 @@ EDPLUGIN_COMMON_WINEPREFIX=<a wine prefix> tools/test.sh build/edplugin_common-r
 Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` at configure.
 
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
-git and without wine) and `edplugin_common_test.exe` (a plain program, without d3d11 or dxgi) under wine, each in a
-new directory under the scratch directory, and prints `PASSED` or `FAILED`. One wine run is limited to
-`WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option `EDPLUGIN_COMMON_TESTS` (ON by default) turns the
+git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
+without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
+d3d11 or dxgi) under wine, each in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
+One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option `EDPLUGIN_COMMON_TESTS` (ON by default) turns the
 test program off.
