@@ -43,7 +43,9 @@ The library's tests build only when it is the top-level project.
 - CPM tells packages apart by name only: the first `cpmaddpackage` of stralgo or small_vectors wins, a later one
   with another `GIT_TAG` is silently ignored. A plugin that adds them too pins the same commits as the library.
 - A plugin's `tools/test.sh` sources `edplugin_common/tools/wine-common.sh`; its functions and their exit codes are
-  described at the top of that file.
+  described at the top of that file. Without the clone the plugin's test stops with the clone command. The clone is
+  brought up to date by hand (`git -C edplugin_common pull`).
+- After a test one wineserver stays 600 s for the next one; `wineserver -k` with the same `WINEPREFIX` ends it.
 
 ## Build and test
 
