@@ -6,8 +6,10 @@
 cmake_minimum_required(VERSION 3.29)
 project(edplugin_common VERSION 1.0.0 LANGUAGES CXX)
 
-if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-  message(FATAL_ERROR "edplugin_common builds with clang-cl: configure with a preset or "
+# clang-cl, or clang's GNU-style driver targeting the MSVC ABI (cmake/clang-msvc-sdk.cmake, for an IDE's code model)
+if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+   OR NOT (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
+  message(FATAL_ERROR "edplugin_common builds with clang-cl (or clang for the MSVC ABI): configure with a preset or "
                       "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/clang-cl-msvc-sdk.cmake")
 endif()
 
@@ -77,6 +79,6 @@ if(PROJECT_IS_TOP_LEVEL)
     # each header alone in a translation unit of its own: it includes what it needs
     add_executable(edplugin_common_test test/library_test.cc test/alone_lock.cc test/alone_once_flag.cc test/alone_format.cc)
     target_link_libraries(edplugin_common_test PRIVATE edplugin_common::edplugin_common)
-    target_compile_options(edplugin_common_test PRIVATE /W4)
+    edplugin_common_warnings(edplugin_common_test)
   endif()
 endif()

@@ -22,6 +22,11 @@ License: MIT (see `LICENSE`).
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
   msvc-wine installs.
+- `cmake/clang-msvc-sdk.cmake` - the same cross build with clang's GNU-style driver (`clang++
+  --target=x86_64-pc-windows-msvc`, lld, llvm-ar) instead of clang-cl: the MSVC ABI and runtime as there, `MSVC_ROOT`
+  by `-Xmicrosoft-windows-sys-root` (the driver's `/winsysroot`), `-std=c++23`. For an IDE whose code model
+  is libclang reading `compile_commands.json` (KDevelop), which takes GNU-style options only; the `kdev-*` presets use
+  it, the other presets and every release clang-cl.
 - `cmake/get_cpm.cmake` - CPM, which brings stralgo and small_vectors (pinned to their commits).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
@@ -51,13 +56,17 @@ edplugin_common_pin(<plugin>)
 ```
 
 The plugin's presets take the toolchain from the clone: `"toolchainFile":
-"${sourceDir}/edplugin_common/cmake/clang-cl-msvc-sdk.cmake"`. The library's tests build only when it is the
-top-level project.
+"${sourceDir}/edplugin_common/cmake/clang-cl-msvc-sdk.cmake"`, and for the IDE's `kdev-*` presets
+`.../clang-msvc-sdk.cmake`. Options in MSVC's form stay out of the plugin's own CMake: warnings by
+`edplugin_common_warnings`, linker options with CMake's `LINKER:` prefix (`LINKER:/DEBUG:FULL`, `LINKER:/EXPORT:...`),
+which both drivers take. The library's tests build only when it is the top-level project.
 
 - `edplugin_common_version(<macro> <header> <target>...)`: the header `<build>/gen/<header>` with the macro defined
   to the plugin's version, forced into the C++ sources of each target (not into MASM sources): `vX.Y.Z` for a
   release (HEAD on its tag, no uncommitted changes), else `<the last tag>-<short hash>`, with `-dirty` for
   uncommitted changes; `dev` outside git.
+- `edplugin_common_warnings(<target>...)`: the warning level of the C++ sources of each target: `/W4` with clang-cl,
+  the same `-Wall -Wextra` with the GNU-style driver.
 - `edplugin_common_pin(<target>...)`: at every build, the clone against `edplugin_common.commit`, and the header
   `<build>/gen/edplugin_common_commit.h` with `EDPLUGIN_COMMON_COMMIT`: the clone's short hash, `-dirty` for
   uncommitted changes in it, ` (pinned <short hash>)` when it is not on the pinned commit, `unknown` when there is
@@ -117,8 +126,9 @@ commit, so a change of the API can come in a 1.x release, and `CHANGELOG.md` alw
 
 ## Build and test
 
-Requirements: CMake 3.29 or later, Ninja, clang-cl, lld-link, llvm-lib, llvm-rc, llvm-mt, llvm-ml64, MSVC and the
-Windows SDK in `MSVC_ROOT`, git (the pin check at every build), wine for the tests.
+Requirements: CMake 3.29 or later, Ninja, clang-cl (the `kdev-*` presets: clang, clang++, llvm-ar, llvm-ranlib),
+lld-link, llvm-lib, llvm-rc, llvm-mt, llvm-ml64, MSVC and the Windows SDK in `MSVC_ROOT`, git (the pin check at every
+build), wine for the tests.
 
 ```sh
 export MSVC_ROOT=<MSVC and Windows SDK directory>

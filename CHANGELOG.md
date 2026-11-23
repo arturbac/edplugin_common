@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `cmake/clang-msvc-sdk.cmake`: the cross build with clang's GNU-style driver targeting the MSVC ABI, for an IDE's
+  code model (libclang reads GNU-style options only); the `kdev-*` presets use it, the other presets clang-cl as
+  before. The library's check of the compiler takes either driver.
+- `edplugin_common_warnings(<target>...)`: `/W4` with clang-cl, `-Wall -Wextra` with the GNU-style driver.
+  `edplugin_common_version` forces its header in by `/FI` or `-include`, as the driver takes it.
+
 ## 1.0.0
 
 - First release.
