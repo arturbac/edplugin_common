@@ -1,0 +1,43 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 29, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "cfg-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "toolchainFile": "${sourceDir}/cmake/clang-cl-msvc-sdk.cmake",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "kdev-edplugin_common-debug",
+      "displayName": "Debug (clang-cl), build directory chosen by the IDE",
+      "inherits": [ "cfg-base" ],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "kdev-edplugin_common-release",
+      "displayName": "Release (clang-cl), build directory chosen by the IDE",
+      "inherits": [ "cfg-base" ],
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "edplugin_common-debug",
+      "displayName": "Debug (clang-cl) in build/edplugin_common-debug",
+      "inherits": [ "kdev-edplugin_common-debug" ],
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "edplugin_common-release",
+      "displayName": "Release (clang-cl) in build/edplugin_common-release",
+      "inherits": [ "kdev-edplugin_common-release" ],
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    }
+  ],
+  "buildPresets": [
+    { "name": "edplugin_common-debug", "configurePreset": "edplugin_common-debug" },
+    { "name": "edplugin_common-release", "configurePreset": "edplugin_common-release" }
+  ]
+}
