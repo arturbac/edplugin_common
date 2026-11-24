@@ -63,21 +63,23 @@ endif()
 # edplugin_common_proxy_exports
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
-# the modules are headers only so far: an INTERFACE target carries them and what every plugin's code compiles with;
-# with the first sources it becomes a STATIC library and these settings PUBLIC
-add_library(edplugin_common INTERFACE)
+# a STATIC library (the log's code) with the headers, and what every plugin's code compiles with (PUBLIC); its MSVC
+# runtime is the plugin's, set before add_subdirectory
+add_library(edplugin_common STATIC src/log.cc)
 add_library(edplugin_common::edplugin_common ALIAS edplugin_common)
-target_include_directories(edplugin_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_features(edplugin_common INTERFACE cxx_std_23)
-target_compile_definitions(edplugin_common INTERFACE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(edplugin_common INTERFACE stralgo::stralgo)
+target_include_directories(edplugin_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(edplugin_common PUBLIC cxx_std_23)
+target_compile_definitions(edplugin_common PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(edplugin_common PUBLIC stralgo::stralgo)
+edplugin_common_warnings(edplugin_common)
 
 if(PROJECT_IS_TOP_LEVEL)
   option(EDPLUGIN_COMMON_TESTS "build the test programs (tools/test.sh runs them under wine)" ON)
   if(EDPLUGIN_COMMON_TESTS)
     # the library's own checks: a plain program, without d3d11 or dxgi
     # each header alone in a translation unit of its own: it includes what it needs
-    add_executable(edplugin_common_test test/library_test.cc test/alone_lock.cc test/alone_once_flag.cc test/alone_format.cc)
+    add_executable(edplugin_common_test test/library_test.cc test/log_test.cc test/alone_lock.cc test/alone_once_flag.cc
+                                        test/alone_format.cc test/alone_log.cc test/alone_state_log.cc)
     target_link_libraries(edplugin_common_test PRIVATE edplugin_common::edplugin_common)
     edplugin_common_warnings(edplugin_common_test)
   endif()

@@ -7,6 +7,14 @@
   before. The library's check of the compiler takes either driver.
 - `edplugin_common_warnings(<target>...)`: `/W4` with clang-cl, `-Wall -Wextra` with the GNU-style driver.
   `edplugin_common_version` forces its header in by `/FI` or `-include`, as the driver takes it.
+- The module `log`: `log_open` (one file per session, the last session's file set aside in `<dir>\<name>\`),
+  `log_line` / `log_vline` with a tap, batches, `log_line_to`, `log_is_open`, `log_close`; taken from edworld's log,
+  with its batch corrected (a batch was given up before its lines were written, so another thread's lines could be
+  lost or written twice, and a full batch was given up and taken again) and the handle an atomic read again under
+  the lock. `state_log_t`: a state whose changes are logged once each.
+- The target is a STATIC library (`src/log.cc`), its settings PUBLIC; the plugin's MSVC runtime is its runtime.
+- `edplugin_common_proxy_exports`: comments are taken out before the list is checked, so `;`, `[`, `]` and bytes
+  outside ASCII may stand in them.
 
 ## 1.0.0
 

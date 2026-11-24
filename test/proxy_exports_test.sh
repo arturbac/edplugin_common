@@ -115,6 +115,15 @@ new_case semicolon < <(printf 'Alpha\nBeta;Gamma\n')
 px -DTAG=t1 -DLIST=list.txt
 check $(refused "list.txt:2: ';' in the list"; echo $?) "';' in a line: an error at its line"
 
+# ';', '[', ']' and a byte outside ASCII in comments: allowed, and an error after them at its own line
+new_case comment-marks < <(printf '# a list; [with] marks \xc5\x82\nAlpha # Beta;Gamma \xc3\xa9\n\nBeta\n')
+px -DTAG=t1 -DLIST=list.txt
+check $([[ $RC == 0 ]] && grep -q 'QWORD 2 DUP(0)' "$CASE/gen/t1_proxy_thunks.asm"; echo $?) \
+  "';', '[', ']' and a byte outside ASCII in comments: allowed"
+new_case comment-marks-then-error < <(printf '# a list; [with] marks \xc5\x82\nAlpha # x;y\n\nBeta;Gamma\n')
+px -DTAG=t1 -DLIST=list.txt
+check $(refused "list.txt:4: ';' in the list"; echo $?) "';' after comments with marks: an error at its own line"
+
 new_case non-ascii < <(printf 'Alpha\n\nBeta\xc3\xa9\n')
 px -DTAG=t1 -DLIST=list.txt
 check $(refused "list.txt:3: a character outside ASCII"; echo $?) "a byte outside ASCII: an error at its line"

@@ -18,6 +18,33 @@ License: MIT (see `LICENSE`).
   value when the text could not be made (the buffer then empty), so the caller logs it. A plugin keeps its own
   `format_into` over it with its log; the library's function has another name, so a plugin's `format_into` called
   unqualified with an argument of the library's types does not find it by argument-dependent lookup.
+- `include/edplugin_common/log/log.h` (code in `src/log.cc`) - a plugin's log, one per module:
+  - `log_open(dir, name)`: `<dir>\<name>.log` for this game session. A non-empty file there from the last session
+    is first set aside as `<dir>\<name>\<name>.<UTC of its last write>.log` (the directory made when missing);
+    two sessions whose last writes fall in the same second get one name, and the second is not set aside. When
+    the file cannot be set aside (the name taken, a file where the directory would be, a directory's path over 247
+    characters or the moved file's over 259, or another error), the session appends to it and logs why, with the
+    error's code. A second call while the log is open does nothing and is true; else false, said by
+    `OutputDebugString`, for an empty directory or name, a log's path over 259 characters or a file that cannot be
+    opened. Older sessions are not removed.
+  - `log_line(fmt, ...)` / `log_vline(fmt, args, tap)`: one line, a UTC time stamp with milliseconds, the text and a
+    line end, cut to 2 KB and written with Windows' own calls under an SRW lock; a text that cannot be made is cut
+    where it failed and says so; never thrown. The optional tap (`line_tap_t`) gets each line's text (without stamp
+    and line end) once, before it is written, outside the log's lock, also in a batch and when the log is not open.
+  - `log_batch_begin()` / `log_batch_end()`: one thread's lines gathered (16 KB) and written at once, at the end or
+    when the batch is full; another thread's lines are written at once meanwhile; batches do not nest (the first
+    end ends one). The thread ends its batch on every way out, a fault too (its fault handler calls
+    `log_batch_end`): a batch never ended keeps its lines and stays that thread's for good.
+  - `log_line_to(path, fmt, ...)`: one such line appended to another file (opened, written, closed).
+  - `log_is_open()`; `log_close()` for tests.
+
+  Every global of the log is constant-initialised and trivially destructible, so the library adds no constructor or
+  destructor to a dll. Nothing of it may be called from `DllMain`, and the log is not closed at
+  `DLL_PROCESS_DETACH` (the game's threads are killed at its exit).
+- `include/edplugin_common/log/state_log.h` - `state_log_t<value_t>`: the last value of a state (an integer or an
+  enumeration, lock-free); `changed(now)` is true when it differs from the last one, so `if(s.changed(v))
+  log_line(...)` logs once per change of state, not once per frame. The first value, given to the constructor, is
+  the caller's "unknown".
 - `cmake/clang-cl-msvc-sdk.cmake` - the toolchain: a cross build for 64-bit Windows on Linux with clang-cl and LLVM's
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
@@ -30,9 +57,9 @@ License: MIT (see `LICENSE`).
 - `cmake/get_cpm.cmake` - CPM, which brings stralgo and small_vectors (pinned to their commits).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
-- The target `edplugin_common::edplugin_common`: the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`,
-  `NOMINMAX` and `WIN32_LEAN_AND_MEAN`, linked with stralgo. The modules are headers only so far, so it is an
-  INTERFACE target.
+- The target `edplugin_common::edplugin_common`: a STATIC library (the log's code) with the headers above, compiled as
+  C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+  with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
 
@@ -100,7 +127,8 @@ which both drivers take. The library's tests build only when it is the top-level
   or name that is not a C identifier (decorated names with `@` or `?` are not supported; a `.def` keyword such as
   `DATA`, `PRIVATE` or `NONAME` is not refused and does not belong in the list), a name twice, a `WRAP` name
   twice or not in the list, a list without names or with every name in `WRAP`, `;`, `[`, `]` or a byte outside ASCII
-  in the list. The output follows the layout of the export thunks of the
+  in the list outside comments (comments are taken out first, so they may hold any text). The output follows the
+  layout of the export thunks of the
   [EDVR unofficial patch](https://github.com/characterecho-sean/edvr-unofficial-patch) (MIT); no code of it is here.
 - The plugin sets the MSVC runtime (`CMAKE_MSVC_RUNTIME_LIBRARY`, static `/MT`) and the debug information format
   before `add_subdirectory`; the library sets them itself only as the top-level project.
@@ -142,6 +170,7 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
-d3d11 or dxgi) under wine, each in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
+d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once) under wine, each in a new
+directory under the scratch directory, and prints `PASSED` or `FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.

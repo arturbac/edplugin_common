@@ -115,7 +115,7 @@ endfunction()
 # so an unchanged list rebuilds nothing; a change of the list configures again. Sets <tag>_PROXY_DEF, <tag>_PROXY_ASM
 # and <tag>_PROXY_HEADER in the caller's scope. Errors (nothing written): a tag or name that is not a C identifier, a
 # name twice, a WRAP name twice or not in the list, no name left outside WRAP, ';', '[', ']' or a byte outside ASCII
-# in the list.
+# in the list outside comments.
 function(edplugin_common_proxy_exports tag list)
   cmake_parse_arguments(PARSE_ARGV 2 arg "" "" WRAP)
   set(what "edplugin_common_proxy_exports")
@@ -131,6 +131,8 @@ function(edplugin_common_proxy_exports tag list)
     message(FATAL_ERROR "${what}: no list ${source}")
   endif()
   file(READ "${source}" text)
+  # the comments out first, their line ends kept (the lines keep their numbers): what a comment says is not checked
+  string(REGEX REPLACE "#[^\n]*" "" text "${text}")
 
   # a CMake list is split at ';' and bracketed by '[' ']', and string commands work on bytes: such a list is refused
   # whole, before it is split into lines
