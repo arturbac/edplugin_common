@@ -4,6 +4,7 @@
 #include <edplugin_common/file/file.h>
 #include <edplugin_common/log/log.h>
 #include <edplugin_common/memory/memory.h>
+#include <edplugin_common/memory/pe.h>
 #include <edplugin_common/paths/paths.h>
 #include <edplugin_common/shader/names_of.h>
 #include <edplugin_common/shader/shader.h>
@@ -203,8 +204,8 @@ namespace
     check(std::string_view{section} == ".text", "section_of: a function in .text");
     edplugin_common::section_of(exe, in_rdata, section);
     check(std::string_view{section} == ".rdata", "section_of: a constant in .rdata");
-    check(edplugin_common::pe_headers(reinterpret_cast<HMODULE>(pages)) == nullptr and edplugin_common::pe_headers(exe) != nullptr,
-          "pe_headers: data is no module, the exe is");
+    check(not edplugin_common::pe_image(reinterpret_cast<HMODULE>(pages)) and edplugin_common::pe_image(exe),
+          "pe_image: data is no module, the exe is");
     edplugin_common::section_of(reinterpret_cast<HMODULE>(pages), pages, section);
     check(std::string_view{section} == "-", "section_of: no module - \"-\"");
 
@@ -229,8 +230,8 @@ namespace
     check(edplugin_common::is_integer(DXGI_FORMAT_R16_UINT) and not edplugin_common::is_integer(DXGI_FORMAT_R16_FLOAT), "is_integer");
     }
 
-  ///\brief headers of an image made in memory: an export directory at 0x1000 (the no-access page) faults, one past the
-  /// image's size is out of shape
+  ///\brief headers of an image made in memory: an export directory at 0x1000 (a readable section on the no-access
+  /// page) faults, one past the image's size is out of shape
   auto exports_checks(std::uint8_t * pages, std::size_t page) -> void
     {
     char name[64];
@@ -259,9 +260,17 @@ namespace
     dos->e_lfanew = 64;
     auto * const nt{reinterpret_cast<IMAGE_NT_HEADERS64 *>(pages + 64)};
     nt->Signature = IMAGE_NT_SIGNATURE;
+    nt->FileHeader.NumberOfSections = 1;
+    nt->FileHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
     nt->OptionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
     nt->OptionalHeader.NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
     nt->OptionalHeader.SizeOfImage = 0x2000;
+    nt->OptionalHeader.SizeOfHeaders = 0x400;
+    auto * const section{reinterpret_cast<IMAGE_SECTION_HEADER *>(pages + 64 + sizeof(IMAGE_NT_HEADERS64))};
+    std::memcpy(section->Name, ".edata", 6);
+    section->VirtualAddress = 0x1000;
+    section->Misc.VirtualSize = 0x1000;
+    section->Characteristics = IMAGE_SCN_MEM_READ;
     nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT] = IMAGE_DATA_DIRECTORY{0x1000, sizeof(IMAGE_EXPORT_DIRECTORY)};
     auto const image{reinterpret_cast<HMODULE>(pages)};
     check(edplugin_common::first_export_with_prefix(image, "edpc_", name, fault) == edplugin_common::export_scan_e::fault

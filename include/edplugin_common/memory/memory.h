@@ -1,6 +1,6 @@
 // edplugin_common - memory of the game's process: whether it can be read or holds code, the module an address lies
-// in, a loaded module's PE headers and sections, a loaded module's exports by name. Each part is looked at before it
-// is read: the game's process, no fault.
+// in, the section of a loaded module an address lies in, a loaded module's exports by a prefix (the image itself:
+// memory/pe.h). Each part is looked at before it is read: the game's process, no fault.
 #pragma once
 
 #include <windows.h>
@@ -23,12 +23,8 @@ namespace edplugin_common
   [[nodiscard]]
   auto module_of(void const * p) noexcept -> HMODULE;
 
-  ///\brief a loaded module's PE32+ headers, the DOS and NT headers checked readable and signed; nullptr otherwise
-  [[nodiscard]]
-  auto pe_headers(HMODULE module) noexcept -> IMAGE_NT_HEADERS64 const *;
-
   ///\brief the PE section of `module` holding `p` (its name, up to 8 characters), or "-" when none does or the
-  /// headers cannot be read
+  /// headers cannot be read; read under the guard (a module unloaded meanwhile gives "-")
   auto section_of(HMODULE module, void const * p, char (&name)[9]) noexcept -> void;
 
   enum struct export_scan_e : std::uint8_t
@@ -40,8 +36,8 @@ namespace edplugin_common
     };
 
   ///\brief the first export of a loaded module whose name starts with `prefix`, read from the image's export directory
-  /// (each offset checked against the image's size, under a fault handler); its name cut to 63 characters. An empty
-  /// prefix finds none
+  /// (pe_image, each offset checked against the image's bound, under a fault handler); its name cut to 63 characters.
+  /// An empty prefix finds none
   [[nodiscard]]
   auto first_export_with_prefix(HMODULE module, std::string_view prefix, char (&name)[64], DWORD & fault) noexcept -> export_scan_e;
   }  // namespace edplugin_common

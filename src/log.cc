@@ -37,6 +37,10 @@ namespace edplugin_common
     constinit std::size_t batch_used{};
     // a failed write is said once to a debugger: the log is where it would be said
     constinit once_flag_t write_failed;
+    // off for the session after a fault in the log's own write (log_break)
+    constinit std::atomic<bool> broken{};
+    // the test's replacement of WriteFile, nullptr for none
+    constinit std::atomic<detail::log_write_t> write_function{};
 
     static_assert(std::is_trivially_destructible_v<std::atomic<HANDLE>> and std::is_trivially_destructible_v<SRWLOCK>
                   and std::is_trivially_destructible_v<std::atomic<DWORD>> and std::is_trivially_destructible_v<once_flag_t>);
@@ -107,12 +111,17 @@ namespace edplugin_common
     ///\brief bytes written to the open log under its lock; nothing when it is not open
     auto write_out(char const * data, std::size_t size) noexcept -> void
       {
+      if(broken.load(std::memory_order_relaxed))
+        return;
       exclusive_lock_t const hold{lock};
       HANDLE const h{file.load(std::memory_order_acquire)};
       if(h == nullptr)
         return;
       DWORD written{};
-      if((not WriteFile(h, data, static_cast<DWORD>(size), &written, nullptr) or written != size) and write_failed.first())
+      detail::log_write_t const write{write_function.load(std::memory_order_relaxed)};
+      BOOL const ok{write ? write(h, data, static_cast<DWORD>(size), &written, nullptr)
+                          : WriteFile(h, data, static_cast<DWORD>(size), &written, nullptr)};
+      if((not ok or written != size) and write_failed.first())
         {
         wchar_t text[96];
         if(try_format_into(text, L"edplugin_common log: a write failed (error {}); said once\n", last_error()))
@@ -228,7 +237,7 @@ namespace edplugin_common
 
   auto log_vline(std::string_view fmt, std::format_args args, line_tap_t tap) noexcept -> void
     {
-    if(tap == nullptr and file.load(std::memory_order_acquire) == nullptr)
+    if(broken.load(std::memory_order_relaxed) or (tap == nullptr and file.load(std::memory_order_acquire) == nullptr))
       return;
     char buf[line_room];
     line_t const line{make_line(buf, fmt, args)};
@@ -278,6 +287,19 @@ namespace edplugin_common
     if(not WriteFile(h, buf, static_cast<DWORD>(line.size), &written, nullptr) or written != line.size)
       say(L"edplugin_common log: a line not appended whole to {} (error {})\n", path, last_error());
     CloseHandle(h);
+    }
+
+  auto log_break() noexcept -> void
+    {
+    if(not broken.exchange(true, std::memory_order_relaxed))
+      OutputDebugStringW(L"edplugin_common log: a fault in the log's own write; no line is written for the rest of the session\n");
+    }
+
+  auto log_is_broken() noexcept -> bool { return broken.load(std::memory_order_relaxed); }
+
+  auto detail::log_write_function(log_write_t write) noexcept -> log_write_t
+    {
+    return write_function.exchange(write, std::memory_order_relaxed);
     }
 
   auto log_close() noexcept -> void

@@ -61,4 +61,20 @@ namespace edplugin_common
 
   ///\brief the log closed; for tests (a plugin leaves it open to the end of the process)
   auto log_close() noexcept -> void;
+
+  ///\brief the log off for the rest of the session: no line made or written from now (a fault in the log's own write,
+  /// guard/guard.h); said once by OutputDebugString
+  auto log_break() noexcept -> void;
+
+  ///\brief whether the log is off for the session (log_break)
+  [[nodiscard]]
+  auto log_is_broken() noexcept -> bool;
+
+  namespace detail
+    {
+    using log_write_t = int (*)(void * file, void const * data, unsigned long size, unsigned long * written, void * overlapped);
+
+    ///\brief for the library's test only: the function the log writes its file with (nullptr: WriteFile); the one before
+    auto log_write_function(log_write_t write) noexcept -> log_write_t;
+    }  // namespace detail
   }  // namespace edplugin_common

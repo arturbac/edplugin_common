@@ -1,7 +1,8 @@
 // The checks of edplugin_common's headers without a Windows header, built natively with sanitizers
-// (tools/test-native.sh): shader/shader.h's hashes and 3DMigoto's name, also from several threads at once, and
-// tools/context_probe's decoding of jumps (every form cut at every length: no read past the bytes given) and its
-// text of slots.
+// (tools/test-native.sh): memory/pe_range.h's ranges, shader/shader.h's hashes and 3DMigoto's name, also from
+// several threads at once, and tools/context_probe's decoding of jumps (every form cut at every length: no read past
+// the bytes given) and its text of slots.
+#include <edplugin_common/memory/pe_range.h>
 #include <edplugin_common/shader/shader.h>
 
 #include "context_probe/jump.h"
@@ -93,8 +94,27 @@ namespace
     }
   }  // namespace
 
+namespace
+  {
+  ///\brief memory/pe_range.h with values the compiler does not know (the sanitizers watch the arithmetic)
+  auto pe_ranges() -> void
+    {
+    using namespace edplugin_common;
+    std::uint64_t volatile const top{~std::uint64_t{}};
+    std::uint64_t volatile const size{0x2000};
+    check(rva_in(0x1000, 0x1000, size) and not rva_in(8, top, size) and not rva_in(top, 1, size), "rva_in: within, no overflow");
+    check(array_in(0x100, 4, 4, 0x110) and not array_in(0, top / 2, 8, size) and not array_in(0, 1, 0, size),
+          "array_in: within, no overflow of count * item, no item of 0 bytes");
+    check(rva_inside(0x1000, 0x1000, 1) and not rva_inside(top, 0x1000, 0x10), "rva_inside");
+    std::int64_t volatile const negative{-8};
+    check(lfanew_ok(0xF8, 264, 0x1000) and not lfanew_ok(negative, 264, size) and not lfanew_ok(4097, 264, size),
+          "lfanew_ok: in [64, 4096] and the headers inside");
+    }
+  }  // namespace
+
 auto main() -> int
   {
+  pe_ranges();
   shader_names();
   shader_names_threads();
   context_probe_jumps();

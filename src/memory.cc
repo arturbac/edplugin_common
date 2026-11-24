@@ -1,10 +1,14 @@
 // edplugin_common - memory of the game's process (include/edplugin_common/memory/memory.h).
 #include <edplugin_common/memory/memory.h>
 
+#include <edplugin_common/guard/guard.h>
+#include <edplugin_common/memory/pe.h>
+
 #include <windows.h>
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 
 namespace edplugin_common
   {
@@ -39,41 +43,41 @@ namespace edplugin_common
     return m;
     }
 
-  auto pe_headers(HMODULE module) noexcept -> IMAGE_NT_HEADERS64 const *
+  namespace
     {
-    auto const * const base{reinterpret_cast<std::uint8_t const *>(module)};
-    auto const * const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(base)};
-    if(not module or not readable(dos, sizeof *dos) or dos->e_magic != IMAGE_DOS_SIGNATURE or dos->e_lfanew <= 0
-       or dos->e_lfanew > 0x10000)
-      return nullptr;
-    auto const * const nt{reinterpret_cast<IMAGE_NT_HEADERS64 const *>(base + dos->e_lfanew)};
-    if(not readable(nt, sizeof *nt) or nt->Signature != IMAGE_NT_SIGNATURE or nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC)
-      return nullptr;
-    return nt;
-    }
+    struct section_query_t
+      {
+      HMODULE module;
+      void const * p;
+      char (*name)[9];
+      };
+
+    ///\brief section_of's reads, run under the guard: the module may be unloaded meanwhile
+    auto section_name(void * arg) noexcept -> void
+      {
+      auto const & q{*static_cast<section_query_t const *>(arg)};
+      std::optional<pe_image_t> const image{pe_image(q.module)};
+      if(not image)
+        return;
+      std::uintptr_t const rva{reinterpret_cast<std::uintptr_t>(q.p) - reinterpret_cast<std::uintptr_t>(q.module)};
+      if(IMAGE_SECTION_HEADER const * const s{image->section_of(rva)})
+        {
+        std::memcpy(*q.name, s->Name, 8);
+        (*q.name)[8] = '\0';
+        }
+      }
+    }  // namespace
 
   auto section_of(HMODULE module, void const * p, char (&name)[9]) noexcept -> void
     {
     name[0] = '-';
     name[1] = '\0';
-    IMAGE_NT_HEADERS64 const * const nt{pe_headers(module)};
-    if(not nt)
-      return;
-    std::uintptr_t const rva{reinterpret_cast<std::uintptr_t>(p) - reinterpret_cast<std::uintptr_t>(module)};
-    IMAGE_SECTION_HEADER const * const sections{IMAGE_FIRST_SECTION(nt)};
-    WORD const n{nt->FileHeader.NumberOfSections};
-    if(n == 0 or not readable(sections, sizeof(IMAGE_SECTION_HEADER) * n))
-      return;
-    for(WORD i{}; i != n; ++i)
+    section_query_t query{module, p, &name};
+    fault_t fault;
+    if(not run_guarded_call(&section_name, &query, fault))
       {
-      IMAGE_SECTION_HEADER const & s{sections[i]};
-      DWORD const size{std::max(s.Misc.VirtualSize, s.SizeOfRawData)};
-      if(rva >= s.VirtualAddress and rva < std::uintptr_t{s.VirtualAddress} + size)
-        {
-        std::memcpy(name, s.Name, 8);
-        name[8] = '\0';
-        return;
-        }
+      name[0] = '-';
+      name[1] = '\0';
       }
     }
 
@@ -82,46 +86,24 @@ namespace edplugin_common
     ///\brief the scan itself, its reads in a function of its own: clang-cl catches a fault under __try only from a
     /// call (without /EHa a fault of an instruction in the __try body itself is not caught)
     [[gnu::noinline]]
-    auto scan_exports(std::uint8_t const * base, std::string_view prefix, char (&name)[64]) noexcept -> export_scan_e
+    auto scan_exports(HMODULE module, std::string_view prefix, char (&name)[64]) noexcept -> export_scan_e
       {
-      std::size_t const need{prefix.size() + 1};
-      auto const * const dos{reinterpret_cast<IMAGE_DOS_HEADER const *>(base)};
-      if(dos->e_magic != IMAGE_DOS_SIGNATURE or dos->e_lfanew <= 0 or dos->e_lfanew > 4096)
+      std::optional<pe_image_t> const image{pe_image(module)};
+      if(not image)
         return export_scan_e::malformed;
-      auto const * const nt{reinterpret_cast<IMAGE_NT_HEADERS64 const *>(base + dos->e_lfanew)};
-      if(nt->Signature != IMAGE_NT_SIGNATURE or nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC
-         or nt->OptionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_EXPORT)
-        return export_scan_e::malformed;
-      std::uint32_t const size{nt->OptionalHeader.SizeOfImage};
-      IMAGE_DATA_DIRECTORY const & dir{nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]};
-      if(dir.VirtualAddress == 0)
-        return export_scan_e::none;  // no exports
-      if(dir.Size < sizeof(IMAGE_EXPORT_DIRECTORY) or dir.VirtualAddress > size
-         or size - dir.VirtualAddress < sizeof(IMAGE_EXPORT_DIRECTORY))
-        return export_scan_e::malformed;
-      auto const * const exports{reinterpret_cast<IMAGE_EXPORT_DIRECTORY const *>(base + dir.VirtualAddress)};
-      std::uint32_t const count{exports->NumberOfNames};
-      if(exports->AddressOfNames > size or count > (size - exports->AddressOfNames) / sizeof(std::uint32_t))
-        return export_scan_e::malformed;
-      auto const * const names{reinterpret_cast<std::uint32_t const *>(base + exports->AddressOfNames)};
-      for(std::uint32_t i{}; i != count; ++i)
-        {
-        std::uint32_t const at{names[i]};
-        if(at > size or size - at < need)
-          continue;
-        char const * const text{reinterpret_cast<char const *>(base + at)};
-        if(std::memcmp(text, prefix.data(), prefix.size()) != 0)
-          continue;
-        std::size_t n{};
-        while(n + 1 < sizeof name and at + n < size and text[n] != '\0')
-          {
-          name[n] = text[n];
-          ++n;
-          }
-        name[n] = '\0';
-        return export_scan_e::found;
-        }
-      return export_scan_e::none;
+      export_scan_e result{export_scan_e::none};
+      bool const whole{for_each_export(*image,
+                                       [&](export_t const & e) noexcept
+                                       {
+                                         if(not e.name.starts_with(prefix))
+                                           return true;
+                                         std::size_t const n{std::min(e.name.size(), sizeof name - 1)};
+                                         std::memcpy(name, e.name.data(), n);
+                                         name[n] = '\0';
+                                         result = export_scan_e::found;
+                                         return false;
+                                       })};
+      return whole ? result : export_scan_e::malformed;
       }
     }  // namespace
 
@@ -135,9 +117,9 @@ namespace edplugin_common
       return export_scan_e::none;
     __try
       {
-      return scan_exports(reinterpret_cast<std::uint8_t const *>(module), prefix, name);
+      return scan_exports(module, prefix, name);
       }
-    __except(fault = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
+    __except(fault = GetExceptionCode(), fault_action(fault))
       {
       name[0] = '\0';
       return export_scan_e::fault;

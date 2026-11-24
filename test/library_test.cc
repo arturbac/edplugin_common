@@ -1,8 +1,8 @@
 // The library's test under wine (tools/test.sh): a plain program, without d3d11 or dxgi, linked with the library as
 // a plugin links it. Checked: the library's interface definitions reach the program, stralgo comes with it, and the
 // modules core (locks, once_flag_t), text (wide, utf8, as_unsigned, try_format_into), log and state_log_t
-// (test/log_test.cc), paths, file, memory, shader and dxgi (test/modules_test.cc), and settings_doc
-// (test/settings_doc_test.cc).
+// (test/log_test.cc), paths, file, memory, shader and dxgi (test/modules_test.cc), settings_doc
+// (test/settings_doc_test.cc), memory/pe.h (test/pe_test.cc) and guard (test/guard_test.cc).
 #include <edplugin_common/core/lock.h>
 #include <edplugin_common/core/once_flag.h>
 #include <edplugin_common/text/format.h>
@@ -24,6 +24,11 @@ auto log_tests(void (*checker)(bool ok, char const * what)) -> void;
 auto modules_tests(void (*checker)(bool ok, char const * what)) -> void;
 // test/settings_doc_test.cc
 auto settings_doc_tests(void (*checker)(bool ok, char const * what)) -> void;
+// test/guard_test.cc
+auto guard_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
+auto guard_log_break_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
+// test/pe_test.cc
+auto pe_tests(void (*checker)(bool ok, char const * what)) -> void;
 
 namespace
   {
@@ -240,6 +245,12 @@ auto main() -> int
   log_tests(check);
   modules_tests(check);
   settings_doc_tests(check);
+  pe_tests(check);
+  wchar_t here[MAX_PATH]{};
+  GetCurrentDirectoryW(MAX_PATH, here);
+  guard_tests(check, here);
+  // last: the log is off for the rest of the process after it
+  guard_log_break_tests(check, here);
 
   std::printf(failures ? "FAILED (%d failure(s))\n" : "PASSED (%d failure(s))\n", failures);
   return failures ? 1 : 0;

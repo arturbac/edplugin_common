@@ -1,6 +1,6 @@
-# edplugin_common's headers without a Windows header (shader/shader.h, tools/context_probe's jump.h and slots.h), built
-# natively (Linux, clang++) with sanitizers: tools/test-native.sh configures it twice, with address,undefined and with
-# thread. A project of its own, not a part of the library's build (which targets Windows).
+# edplugin_common's headers without a Windows header (memory/pe_range.h, shader/shader.h, tools/context_probe's jump.h
+# and slots.h), built natively (Linux, clang++) with sanitizers: tools/test-native.sh configures it twice, with
+# address,undefined and with thread. A project of its own, not a part of the library's build (which targets Windows).
 cmake_minimum_required(VERSION 3.29)
 project(edplugin_common_native_test LANGUAGES CXX)
 

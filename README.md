@@ -8,7 +8,11 @@ License: MIT (see `LICENSE`).
 
 ## What it holds
 
-- `include/edplugin_common/core/lock.h` - `exclusive_lock_t`, `shared_lock_t`: an SRW lock held for a scope.
+- `include/edplugin_common/core/lock.h` - `exclusive_lock_t`, `shared_lock_t`: an SRW lock held for a scope. Each one
+  is noted on a short stack of the thread (8 places, constant-initialised `thread_local`) while it is held, and its
+  destructor takes its own entry off wherever it stands (a lock let go out of order, or in an unwind), so the guard
+  (below) lets go of exactly the locks a faulted body still held; past the 8 places a lock is only counted, and a
+  fault while one such is held cannot let it go.
 - `include/edplugin_common/core/once_flag.h` - `once_flag_t`: `first()` is true for the first caller only (until
   `reset()`), also from several threads; constant-initialised, so a global one does no work when the dll is loaded.
 - `include/edplugin_common/text/format.h` - for `std::format`: `wide()` (a wide string in a narrow line, as UTF-8),
@@ -33,10 +37,13 @@ License: MIT (see `LICENSE`).
     and line end) once, before it is written, outside the log's lock, also in a batch and when the log is not open.
   - `log_batch_begin()` / `log_batch_end()`: one thread's lines gathered (16 KB) and written at once, at the end or
     when the batch is full; another thread's lines are written at once meanwhile; batches do not nest (the first
-    end ends one). The thread ends its batch on every way out, a fault too (its fault handler calls
-    `log_batch_end`): a batch never ended keeps its lines and stays that thread's for good.
+    end ends one). The thread ends its batch on every way out, a fault too (the guard ends it after a fault or a C++
+    exception, also a batch the caller began before the guarded call): a batch never ended keeps its lines and stays
+    that thread's for good.
   - `log_line_to(path, fmt, ...)`: one such line appended to another file (opened, written, closed).
   - `log_is_open()`; `log_close()` for tests.
+  - `log_break()`: the log off for the rest of the session, no line made or written from then, said once by
+    `OutputDebugString`; the guard calls it after a fault in the log's own write. `log_is_broken()`.
 
   Every global of the log is constant-initialised and trivially destructible, so the library adds no constructor or
   destructor to a dll. Nothing of it may be called from `DllMain`, and the log is not closed at
@@ -61,10 +68,32 @@ License: MIT (see `LICENSE`).
   or smaller than `least`, silent. The views of both stay for the process's life.
 - `include/edplugin_common/memory/memory.h` (code in `src/memory.cc`) - `readable(p, bytes)` (committed, read access,
   no guard page, the whole range in one region), `executable(p)`, `module_of(p)` (the reference count unchanged),
-  `pe_headers(module)` (a loaded module's PE32+ headers, each read checked), `section_of(module, p, name)`, and
-  `first_export_with_prefix(module, prefix, name, fault)`: the first export by such a name, read from the image's
-  export directory with every offset checked against its size, under a fault handler (none, found, malformed, or a
-  fault with its code).
+  `section_of(module, p, name)` (read under the guard: a module unloaded meanwhile gives `-`), and `first_export_with_prefix(module, prefix, name, fault)`: the first export by such
+  a name, read through `pe_image` (below) under a fault handler (none, found, malformed, or a fault with its code).
+- `include/edplugin_common/memory/pe.h` (code in `src/pe.cc`) - a loaded module's PE image read as data from outside
+  the plugin. `pe_image(module[, loader_size])` gives a `pe_image_t`, or none when the headers are not those of a
+  PE32+ image within its memory (an MZ header, `e_lfanew` in [64, 4096], the NT signature and magic, an optional
+  header long enough for its data directories, at most 96 sections, the section table inside the headers). Its bound
+  is the least of `SizeOfImage`, the loader's size when given and the memory of the image's allocation
+  (`size_differs()` when they do not agree; the allocation is followed for 4096 regions at most); the headers' part
+  ends at `SizeOfHeaders` or at the first section, whichever comes first (`headers()`). The headers and the section
+  table are read once, as copies (a `pe_image_t` is about 4 KB). Every read keeps to the bound and to the headers or
+  one readable section: `read<value_t>(rva)` copies the value out (no pointer to a header structure, no unaligned
+  read); `span(rva, bytes)` and `name_at(rva[, most])` (its NUL in the same part), and the names the walks below give,
+  are views of the module's memory, valid while it stays loaded. A section is read by its `IMAGE_SCN_MEM_READ`, not
+  its pages' protection now: a page the game guards (`PAGE_GUARD`) read under the guard comes back as a fault (and the access takes the guard off the page).
+  Also `section_of(rva)`, `directory(index)`, `sections()`. Over it: `for_each_export(image, f)` (each export by name
+  with its RVA and whether it is a forwarder; false for a directory out of shape, a name without its NUL within 4096
+  characters too), `export_address(image, name[, depth])` (no `GetProcAddress`, which may be hooked; a forwarder
+  followed by the module `GetModuleHandleA` gives for its dll's name, `depth` times; one by ordinal not; a forwarder
+  to an API set is not checked by a test) and `for_each_import(image, f)` (each import with its dll, its name or
+  ordinal and its slot, given only when 8-aligned, past the headers and in the IAT directory when the image has one;
+  up to the first descriptor with no name or no slots, where the loader stops; a thunk by name with any of bits 31-62
+  set is out of shape; a walk's counts: descriptors, without names, slots refused, past the directory's size, out of
+  shape). The module is not pinned: another thread unloading it while it is read faults, so a caller reads under the
+  guard and skips the module then.
+- `include/edplugin_common/memory/pe_range.h` - the ranges a PE image's offsets keep to (`rva_in`, `array_in`,
+  `rva_inside`, `lfanew_ok`), without overflow, `constexpr` and without a Windows header.
 - `include/edplugin_common/shader/shader.h` - the names of shaders, without a Windows header: `fnv1a64(data, bytes
   [, h])` (FNV-1a 64 from the plugins' basis 1469598103934665603 - a digit short of FNV's published one, kept since
   every name made so far uses it; `h` goes on from a hash so far), `fnv_3dmigoto` (3DMigoto's FNV-1 from 0) and
@@ -73,9 +102,46 @@ License: MIT (see `LICENSE`).
   be read.
 - `include/edplugin_common/dxgi/format.h` - `is_integer(format)`: a UINT or SINT format.
 - Fault handlers: a `__try` catches a fault only of what it calls (clang-cl without `/EHa` does not catch a fault of an
-  instruction in the `__try` body itself), so the reads under one are in a function of their own (`names_of`,
-  `first_export_with_prefix`), with no object to unwind in the function with the handler, and its filter always
-  handles the fault (`EXCEPTION_EXECUTE_HANDLER`): a fault let through a `noexcept` function ends the process.
+  instruction in the `__try` body itself), so the reads under one are in a function of their own, not inlined
+  (`names_of` and `first_export_with_prefix`, each with a `__try` of its own; the guard's body, called through a
+  pointer), with no object to unwind in the function with the handler. Every
+  filter of the library decides by `fault_action(code)` (`guard/guard.h`): the codes that are no fault go on to the
+  next handler (a thread's name `0x406D1388`, `DBG_PRINTEXCEPTION_C` and its wide form; a breakpoint and a single
+  step only with a debugger attached; UBSan's trap in a build with `EDPLUGIN_COMMON_UBSAN_TRAP`), every other code is
+  handled. A code let through a `noexcept` function and unwound by a handler further out ends the process
+  (`0xC0000409`); a handler further out that continues (`EXCEPTION_CONTINUE_EXECUTION`, as a debugger does) is fine.
+- `include/edplugin_common/guard/guard.h` (code in `src/guard.cc`) - a plugin's code under a fault handler: a fault of
+  the processor (an access violation, a stack overflow, a jump into nothing) or a C++ exception in it comes back as a
+  `fault_t` (the code, the place and its module, an access violation's kind and address, a C++ exception's `what()`)
+  instead of ending the game. The guard's `__try` is in `src/guard.cc`, around a call through a pointer. Without
+  `/EHa` a destructor in the frames a fault leaves runs or not, as the compiler made the call the fault came through
+  (one that may throw: it runs; one known not to: it does not); so after a fault the guard, in this order, sets the
+  stack's guard page again after an overflow, lets go of the library's locks (`core/lock.h`) those frames still held,
+  from the top, and ends the thread's log batch (under a guard of its own: a fault in the log's write turns the log
+  off, `log_break`). Anything else the frames held (flags, buffers, raw locks) is the caller's handler's to set
+  right. A fault in another module (the system, a driver) may leave that module's own locks held, and a part that
+  goes on could then hang the game: `guard_t` turns the part off at once. A fault under a nested guard ends the
+  thread's log batch, also one the outer code began. The original function
+  (the next element of a chain, d3d11, the game's code) is never put under a guard: a fault there is the game's to
+  report. Not caught: `__fastfail`, `/GS` and CFG failures, a heap found broken.
+  - `run_guarded(f, fault)`: `f()` under the handler, its C++ exceptions caught too (the log batch ended after one, as
+    after a fault); false after either.
+    `run_guarded_call(body, arg, fault)` is the same for a plain function pointer.
+  - `fault_line(fault, text)`: the fault as one line, `<what> at <module>+0x<offset>`, with the locks let go.
+  - `guard_t(name, limit)`: a part of a plugin (constant-initialised). `run(f[, on_fault])`: `f()` under the guard
+    unless the part is off; after a fault the line is logged (the first 16 of a session, with `n of limit`), then
+    `on_fault(fault)` is called under a guard of its own (a fault in it turns the part off). After `limit` faults (0:
+    no limit), at once after a stack overflow, a fault while a lock past the thread's note was held, or a fault in a
+    module other than the plugin's (the one the library is linked into), the part is off for the session, said
+    once; `turn_off(why)`, `broken()`, `faults()`.
+  - `run_guarded_thread(name, body, arg[, attempts])`: a thread's body started again after a fault, a second apart,
+    `attempts` times at most (8 unless given, below 1 taken as 1); a stack overflow ends it at once; each fault and
+    the end logged.
+
+  `src/guard.cc` is compiled with `-fno-lto` (the `__try` stays around a call of its own whatever the plugin's build
+  does); a target in the top directory of the build with `INTERPROCEDURAL_OPTIMIZATION` set (not its per
+  configuration form, not a target in a subdirectory) is a warning at configure, since a `__try` of its own is not
+  kept out of LTO.
 - `include/edplugin_common/settings/settings_doc.h` (code in `src/settings_doc.cc`) - a plugin's `doc/settings.md`
   from its own table of settings, one template for every plugin:
   - the plugin gives each setting as text: `setting_row_t` (name, default, group as an index, read at the start or
@@ -98,8 +164,8 @@ License: MIT (see `LICENSE`).
 - `cmake/get_cpm.cmake` - CPM, which brings stralgo and small_vectors (pinned to their commits).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
-- The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory, shader
-  names and settings_doc) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+- The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory, pe, shader
+  names, settings_doc and guard) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
@@ -226,7 +292,13 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
-d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once) and, when built,
+d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, `pe_image` with its exports and
+imports on every module of the process and on an image made in memory, whole and out of shape one way at a time, and
+the guard's: faults and C++ exceptions, locks let go (also through a call by pointer, let go out of order and under a
+nested guard), the codes that are no fault, `guard_t`'s limit and handler, a fault in another module, a thread
+started again, the log batch ended by a fault and by a C++ exception, a fault in the log's own write last, and the guard's cost on
+the CPU printed; the stack overflows are skipped under wine, which ends such a thread instead of raising the
+exception, so they are checked on Windows only) and, when built,
 `context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, and the read
 under `__try` on a page that cannot be read; run when the build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE`
 and `EDPLUGIN_COMMON_TESTS` on) under wine, each in a new directory under the scratch directory, and prints `PASSED`
@@ -239,13 +311,13 @@ Sanitizers, in test builds only (a player gets the release build, without them):
 - `EDPLUGIN_COMMON_UBSAN_TRAP=ON` (the preset `edplugin_common-ubsan`): UndefinedBehaviorSanitizer in trap mode, no
   runtime, for the library's and every linking target's C++ sources (a plugin sets the option at its configure);
   they also get the definition `EDPLUGIN_COMMON_UBSAN_TRAP=1`. Undefined behaviour ends the program with
-  `0xC000001D` (an illegal instruction); under a fault handler (`names_of`, `first_export_with_prefix`) it comes back
-  as a fault with that code. `tools/test.sh` runs the build as any other.
+  `0xC000001D` (an illegal instruction), under a fault handler of the library too (`fault_action` lets the trap go
+  on, so the test ends instead of logging a fault). `tools/test.sh` runs the build as any other.
 - Not for this target under wine: AddressSanitizer (the runtime MSVC ships stops at the start under wine), UBSan
   with its runtime (MSVC's does not link without AddressSanitizer's), ThreadSanitizer (clang-cl has none for
   Windows).
-- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`: `shader/shader.h`,
-  `tools/context_probe/jump.h` and `slots.h`)
+- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`:
+  `memory/pe_range.h`, `shader/shader.h`, `tools/context_probe/jump.h` and `slots.h`)
   built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
   `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
   seconds (600 unless set); a run stopped by the limit is said with its exit code.

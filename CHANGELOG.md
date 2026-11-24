@@ -38,6 +38,20 @@
   the system d3d11 that start with a jump out of it, the process's modules outside the Windows folder; tables read as
   copies under `__try`; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`;
   `tools/context_probe/package.sh` for the zip a player gets (Release only, from a committed tree).
+- The module `guard`: `run_guarded` / `run_guarded_call` (a body under a fault handler, C++ exceptions caught too,
+  the stack's guard page set again after an overflow, the library's locks the body still held let go after a fault,
+  the thread's log batch ended after a fault or a C++ exception), `fault_line`, `guard_t` (a part with a limit of
+  faults, its own handler, off for the session after the limit, a stack overflow or a fault in another module),
+  `run_guarded_thread`, and `fault_action`, which every filter of the library now uses: the codes that are no fault (a thread's name, debug output, a breakpoint or single step under a
+  debugger, UBSan's trap in its test build) go on to the next handler instead of being taken for a fault. `src/guard.cc`
+  is built without LTO; a target built with `INTERPROCEDURAL_OPTIMIZATION` is a warning at configure.
+- `core/lock.h`: `exclusive_lock_t` and `shared_lock_t` note each held lock on a short stack of the thread, for the
+  guard; a destructor takes its own lock's entry off, wherever it stands.
+- `log_break()` and `log_is_broken()`: the log off for the session after a fault in its own write.
+- `memory/pe.h`: `pe_image` / `pe_image_t` (a loaded module's image read as data, every read kept to a bound and
+  copied out), `for_each_export`, `export_address`, `for_each_import`; `memory/pe_range.h`, its ranges, also in
+  `test/native`. `section_of` (now under the guard) and `first_export_with_prefix` read through it. `pe_headers`
+  removed (`pe_image` instead).
 
 ## 1.0.0
 

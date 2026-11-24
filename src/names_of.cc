@@ -1,6 +1,7 @@
 // edplugin_common - both names of a shader's bytecode under a fault handler (include/edplugin_common/shader/names_of.h).
 #include <edplugin_common/shader/names_of.h>
 
+#include <edplugin_common/guard/guard.h>
 #include <edplugin_common/shader/shader.h>
 
 #include <windows.h>
@@ -28,7 +29,7 @@ namespace edplugin_common
       {
       return both_names(code, bytes);
       }
-    __except(EXCEPTION_EXECUTE_HANDLER)
+    __except(fault_action(GetExceptionCode()))
       {
       return {0, 0, false};
       }
