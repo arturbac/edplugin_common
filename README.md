@@ -103,6 +103,13 @@ License: MIT (see `LICENSE`).
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
+- `tools/context_probe/` - `context_probe.exe`, a diagnosis run by hand on Windows, without the game (a player's
+  computer, a VM): on each hardware adapter, where the D3D11 runtime keeps the method tables of a device and of its
+  immediate context, which of the context's slots the runtime rewrites (multithread protection, `ClearState`), which
+  entries lie outside the system d3d11 and where their trampolines lead (`module+offset`), and the process's modules
+  outside the system folder (what was injected into it). The lines go to `context_probe.txt` beside it; a player's
+  instructions in `README.txt` there. The decoding of jumps and the methods' names by slot (`jump.h`, `slots.h`)
+  need no Windows header. Built at the top level with `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default).
 
 ## Use in a plugin
 
@@ -211,8 +218,9 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
-d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once) under wine, each in a new
-directory under the scratch directory, and prints `PASSED` or `FAILED`.
+d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once) and, when built,
+`context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11) under wine,
+each in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.
 
@@ -226,7 +234,8 @@ Sanitizers, in test builds only (a player gets the release build, without them):
 - Not for this target under wine: AddressSanitizer (the runtime MSVC ships stops at the start under wine), UBSan
   with its runtime (MSVC's does not link without AddressSanitizer's), ThreadSanitizer (clang-cl has none for
   Windows).
-- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`: `shader/shader.h`)
+- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`: `shader/shader.h`,
+  `tools/context_probe/jump.h` and `slots.h`)
   built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
   `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
   seconds (600 unless set); a run stopped by the limit is said with its exit code.

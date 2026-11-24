@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # edplugin_common's test without the game, in new directories under the scratch dir: test/pin_test.sh (cmake/pin.cmake
 # with git, without wine), test/proxy_exports_test.sh (edplugin_common_proxy_exports, without wine), then
-# test/library_test.cc under wine.
+# test/library_test.cc and, when built, tools/context_probe's test (context_probe_test.exe, no d3d11) under wine.
 # Usage: tools/test.sh <build dir> <scratch dir>; environment: EDPLUGIN_COMMON_WINEPREFIX (a wine prefix kept between
 # runs), WINE_COMMON_TIMEOUT (seconds for one wine run, 600 unless set)
 set -euo pipefail
@@ -22,7 +22,15 @@ cp "$BUILD/edplugin_common_test.exe" "$BUILD/test_exports.dll" "$RUN/"
 rc=0
 wine_common_run "$RUN" "$RUN/out.txt" -- edplugin_common_test.exe || rc=$?
 cat "$RUN/out.txt"
-# the first failure's code: the wine run's, then pin_test's, then proxy_exports_test's
+# tools/context_probe's following of table entries, without d3d11, when it was built (EDPLUGIN_COMMON_CONTEXT_PROBE)
+probe_rc=0
+if [[ -f $BUILD/context_probe_test.exe ]]; then
+  cp "$BUILD/context_probe_test.exe" "$RUN/"
+  wine_common_run "$RUN" "$RUN/probe.txt" -- context_probe_test.exe || probe_rc=$?
+  cat "$RUN/probe.txt"
+fi
+# the first failure's code: the wine run's, then context_probe_test's, pin_test's, proxy_exports_test's
+((rc != 0 || probe_rc == 0)) || rc=$probe_rc
 ((rc != 0 || pin_rc == 0)) || rc=$pin_rc
 ((rc != 0 || exports_rc == 0)) || rc=$exports_rc
 echo "=== overall: $([[ $rc -eq 0 ]] && echo PASSED || echo FAILED) (exit code $rc, run directory $RUN)"

@@ -1,6 +1,11 @@
 // The checks of edplugin_common's headers without a Windows header, built natively with sanitizers
-// (tools/test-native.sh): shader/shader.h's hashes and 3DMigoto's name, also from several threads at once.
+// (tools/test-native.sh): shader/shader.h's hashes and 3DMigoto's name, also from several threads at once, and
+// tools/context_probe's decoding of jumps (every form cut at every length: no read past the bytes given) and its
+// text of slots.
 #include <edplugin_common/shader/shader.h>
+
+#include "context_probe/jump.h"
+#include "context_probe/slots.h"
 
 #include <atomic>
 #include <cstdio>
@@ -48,12 +53,48 @@ namespace
       t.join();
     check(same == 4, "fnv1a64 from 4 threads at once");
     }
+
+  auto context_probe_jumps() -> void
+    {
+    using context_probe::decode_jump;
+    using context_probe::jump_e;
+    // each form whole, then cut to every shorter length in a buffer of exactly that size (ASan: a read past it fails)
+    std::vector<std::vector<std::uint8_t>> const forms{
+      {0xEB, 0x10},
+      {0xE9, 0x00, 0x01, 0x00, 0x00},
+      {0xFF, 0x25, 0x08, 0x00, 0x00, 0x00},
+      {0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8, 0xFF, 0xE0},
+      {0x49, 0xBB, 1, 2, 3, 4, 5, 6, 7, 8, 0x41, 0xFF, 0xE3},
+      {0x68, 1, 2, 3, 4, 0xC7, 0x44, 0x24, 0x04, 5, 6, 7, 8, 0xC3}};
+    bool whole{true}, cut{true};
+    for(std::vector<std::uint8_t> const & form: forms)
+      {
+      whole = whole and decode_jump(form, 0x7FF000001000ull).kind != jump_e::none
+              and decode_jump(form, 0x7FF000001000ull).length == form.size();
+      for(std::size_t n{}; n != form.size(); ++n)
+        {
+        std::vector<std::uint8_t> const part(form.begin(), form.begin() + std::ptrdiff_t(n));
+        cut = cut and decode_jump(part, 0).kind == jump_e::none;
+        }
+      }
+    check(whole, "decode_jump: each form whole, its length");
+    check(cut, "decode_jump: each form cut short is no jump, nothing read past it");
+    std::vector<std::uint8_t> const near_top{0xE9, 0x10, 0x00, 0x00, 0x00};
+    check(decode_jump(near_top, 0xFFFFFFFFFFFFFFF0ull).target == 0x5ull, "decode_jump: rel32 past the top wraps");
+
+    bool const slots[]{false, true, true, true, false, true, false, true, true};
+    check(context_probe::ranges_text(slots) == "1-3, 5, 7-8", "ranges_text: ranges and a single slot");
+    bool const none[]{false, false};
+    check(context_probe::ranges_text(none) == "none", "ranges_text: none");
+    check(context_probe::method_name(context_probe::context_methods, -1) == "?"sv, "method_name: below 0");
+    }
   }  // namespace
 
 auto main() -> int
   {
   shader_names();
   shader_names_threads();
+  context_probe_jumps();
   std::printf(failures ? "FAILED (%d failure(s))\n" : "PASSED (%d failure(s))\n", failures);
   return failures ? 1 : 0;
   }

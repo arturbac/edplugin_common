@@ -1,6 +1,6 @@
-# edplugin_common's headers without a Windows header (shader/shader.h), built natively (Linux, clang++) with
-# sanitizers: tools/test-native.sh configures it twice, with address,undefined and with thread. A project of its own,
-# not a part of the library's build (which targets Windows).
+# edplugin_common's headers without a Windows header (shader/shader.h, tools/context_probe's jump.h and slots.h), built
+# natively (Linux, clang++) with sanitizers: tools/test-native.sh configures it twice, with address,undefined and with
+# thread. A project of its own, not a part of the library's build (which targets Windows).
 cmake_minimum_required(VERSION 3.29)
 project(edplugin_common_native_test LANGUAGES CXX)
 
@@ -9,7 +9,8 @@ set(EDPLUGIN_COMMON_NATIVE_SANITIZE
     CACHE STRING "the -fsanitize= list; thread apart (it does not go with address); empty for none")
 
 add_executable(edplugin_common_native_test native_test.cc)
-target_include_directories(edplugin_common_native_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+target_include_directories(edplugin_common_native_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+                                                              ${CMAKE_CURRENT_SOURCE_DIR}/../../tools)
 target_compile_features(edplugin_common_native_test PRIVATE cxx_std_23)
 target_compile_options(edplugin_common_native_test PRIVATE -Wall -Wextra)
 find_package(Threads REQUIRED)
