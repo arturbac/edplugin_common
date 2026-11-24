@@ -111,6 +111,10 @@ namespace
     check(context_probe::names_gained(was, is) == std::vector<std::string>{"c.dll", "b.dll"},
           "names_gained: a new name and a name once more, in the order of now");
     check(context_probe::names_gained(is, was).empty(), "names_gained: none");
+    check(context_probe::result_name(2026, 11, 24, 9, 5, 7) == "context_probe-20261124-090507.txt",
+          "result_name: the run's local time");
+    check(context_probe::result_name(2026, 11, 24, 9, 5, 7, 2) == "context_probe-20261124-090507-2.txt",
+          "result_name: a second try in the same second");
     }
   }  // namespace
 

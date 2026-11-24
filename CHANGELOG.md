@@ -37,7 +37,8 @@
   table entry outside the system d3d11 with its method's name and the module its trampoline leads to, the entries in
   the system d3d11 that start with a jump out of it, the process's modules outside the Windows folder; then a swap
   chain on a window never shown and a few `Present` without drawing, after each step the swap chain's table, the
-  device's and the context's slots changed since before it and the modules that came; tables read as copies under
+  device's and the context's slots changed since before it and the modules that came; each run's result in a file of
+  its own, named by the run's time; tables read as copies under
   `__try`; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps and the comparison of reads in
   `test/native`; `tools/context_probe/package.sh` for the zip a player gets (Release only, from a committed tree).
 - The module `guard`: `run_guarded` / `run_guarded_call` (a body under a fault handler, C++ exceptions caught too,

@@ -8,18 +8,19 @@ does next, it makes a swap chain (what a game shows its pictures through) on a w
 few empty pictures to it without drawing anything, and looks again: at the swap chain's table, at what changed in the
 device's tables, and at which files came into it (overlays often join only at this point). It also lists the names of
 the files loaded into it from outside the Windows folder - programs that put themselves into every program (overlays,
-security software). It writes what it found to context_probe.txt beside the exe. It takes about 10 seconds per card.
+security software). It writes what it found beside the exe, to a file named by the time of the run, such as
+context_probe-20261124-131500.txt; each run gets a file of its own. It takes about 10 seconds per card.
 
 What it does not see: it is not the game, so an overlay that joins only a game it knows (by the game's program name,
 or when the game is started from its launcher or Steam) is not seen. "Nothing found" means nothing found in this
 program, not that nothing changes the game.
 
 What it does not do: no network, no drawing, no window on the screen (the window it makes is never shown), no
-administrator rights. The program itself writes no file but
-context_probe.txt beside it (one from an earlier run is replaced); the graphics driver may keep its usual caches. The
-file holds the Windows and d3d11.dll versions, your graphics cards' names and numbers, and file names of loaded modules
-- no user name, computer name or paths. Its own source is beside the exe (context_probe.cc and the files beside it),
-the library's sources it uses in the edplugin_common folder; SOURCE.txt names the library's commit.
+administrator rights. The program itself writes no file but its result beside it (an earlier run's result is never
+replaced); the graphics driver may keep its usual caches. The file holds the Windows and d3d11.dll versions, your
+graphics cards' names and numbers, and file names of loaded modules - no user name, computer name or paths. Its own
+source is beside the exe (context_probe.cc and the files beside it), the library's sources it uses in the
+edplugin_common folder; SOURCE.txt names the library's commit.
 
 How to run:
 1. If a checksum of the zip was posted with the link, compare it first: in PowerShell,
@@ -31,6 +32,6 @@ How to run:
    "More info" -> "Run anyway". Security software may warn too: the program reads the memory of the modules loaded
    into it and, for a moment, points a device context at a copy of its own table.
 5. When it says "press Enter to close", press Enter.
-6. Send context_probe.txt from that folder back.
+6. Send the context_probe-<date>-<time>.txt it named from that folder back (the newest one, when there are more).
 
 SHA256SUMS.txt lists the files' checksums; LICENSE is the library's license (MIT).

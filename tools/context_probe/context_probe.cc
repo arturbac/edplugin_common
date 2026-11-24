@@ -1,16 +1,16 @@
 // context_probe 6 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
 // method tables of a device and of its immediate context, whether it rewrites their entries, and what else in the
 // process changed them. It loads d3d11.dll and dxgi.dll from the system folder only, makes devices on every hardware
-// adapter (no flags, BGRA support, single-threaded) and one with no adapter given, reads their tables, takes a
-// snapshot of the context's entries around a few calls of the runtime, follows the entries that lie outside the system
-// d3d11 to the module they lead to, tells the entries in the system d3d11 whose code starts with a jump out of it (an
-// inline hook), and lists the process's modules outside the Windows folder (what was injected into it). Then, with one
-// set of flags on each device, a swap chain on a window that is never shown and a few Present(0, 0) without drawing,
-// as a game's start: after each step the swap chain's table, what changed in the device's and the context's tables
-// and which modules came, for an overlay that hooks only at the swap chain or at Present. The lines go to
-// context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
-// name and no path in the output. In a process that is not the game: an overlay that hooks only a game it knows by
-// its exe is not seen. Every table is read as a copy, under __try.
+// adapter (no flags, BGRA support, single-threaded) and one with no adapter given, reads their tables, takes a snapshot
+// of the context's entries around a few calls of the runtime, follows the entries that lie outside the system d3d11 to
+// the module they lead to, tells the entries in the system d3d11 whose code starts with a jump out of it (an inline
+// hook), and lists the process's modules outside the Windows folder (what was injected into it). Then, with one set of
+// flags on each device, a swap chain on a window that is never shown and a few Present(0, 0) without drawing, as a
+// game's start: after each step the swap chain's table, what changed in the device's and the context's tables and which
+// modules came, for an overlay that hooks only at the swap chain or at Present. The lines go to
+// context_probe-<date>-<time>.txt beside the exe (a file of its own for each run) and to the console. Nothing is drawn,
+// nothing sent anywhere; no user or computer name and no path in the output. In a process that is not the game: an
+// overlay that hooks only a game it knows by its exe is not seen. Every table is read as a copy, under __try.
 #include "follow.h"
 #include "jump.h"
 #include "slots.h"
@@ -903,6 +903,9 @@ auto main() -> int
   {
   // every dll loaded from here on from the system folder only (a d3d11.dll beside the exe would be a mod)
   SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+  // the result's name by the run's start
+  SYSTEMTIME began{};
+  GetLocalTime(&began);
   // what was found until an exception is still written
   try
     {
@@ -918,10 +921,23 @@ auto main() -> int
   // beside the exe (a long path too)
   std::wstring const exe{edplugin_common::module_path(nullptr)};
   std::wstring const dir{edplugin_common::directory_of(exe)};
-  if(not dir.empty() and edplugin_common::write_whole_file(dir + L"\\context_probe.txt", out.data(), out.size()))
-    std::printf("\nwritten: context_probe.txt beside the exe\n");
+  // a name no file has yet: an earlier run's result is never replaced
+  std::string name;
+  std::wstring path;
+  for(int n{1}; not dir.empty() and n != 10; ++n)
+    {
+    name = context_probe::result_name(began.wYear, began.wMonth, began.wDay, began.wHour, began.wMinute, began.wSecond,
+                                      n);
+    path = dir + L"\\" + std::wstring{name.begin(), name.end()};  // ASCII only
+    if(GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES and GetLastError() == ERROR_FILE_NOT_FOUND)
+      break;
+    path.clear();
+    }
+  if(not path.empty() and edplugin_common::write_whole_file(path, out.data(), out.size()))
+    std::printf("\nwritten: %s beside the exe\n", name.c_str());
   else
-    std::printf("\ncould not write context_probe.txt beside the exe; the lines above are the result\n");
+    std::printf("\ncould not write %s beside the exe; the lines above are the result\n",
+                name.empty() ? "the result file" : name.c_str());
   std::printf("press Enter to close\n");
   (void)std::getchar();
   std::fflush(stdout);

@@ -181,14 +181,14 @@ License: MIT (see `LICENSE`).
   start with a jump out of it), the slots of the device's and the context's tables changed since before the swap chain
   with where they lead, and the modules outside the Windows folder that came, for an overlay that hooks only at the swap
   chain or at `Present`. Every table is read as a copy, under `__try`. It is not the game: an overlay that hooks only a
-  game it knows (by its exe) is not seen. The lines go to `context_probe.txt` beside it; a player's instructions in
-  `README.txt` there. The decoding of jumps, the methods' names by slot and the comparison of two reads (`jump.h`,
-  `slots.h`) need no Windows header. Built at the top level with `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its
-  test with `EDPLUGIN_COMMON_TESTS` too); `tools/context_probe/package.sh <build directory> <output directory>` makes
-  the zip a player gets (the exe, its `README.txt`, its sources, the library's sources it uses, `LICENSE`, `SOURCE.txt`
-  with the library's commit and `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it
-  stops at a build other than Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older
-  than a source.
+  game it knows (by its exe) is not seen. The lines go to `context_probe-<date>-<time>.txt` beside it (a file of its own
+  for each run); a player's instructions in `README.txt` there. The decoding of jumps, the methods' names by slot and
+  the comparison of two reads (`jump.h`, `slots.h`) need no Windows header. Built at the top level with
+  `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its test with `EDPLUGIN_COMMON_TESTS` too);
+  `tools/context_probe/package.sh <build directory> <output directory>` makes the zip a player gets (the exe, its
+  `README.txt`, its sources, the library's sources it uses, `LICENSE`, `SOURCE.txt` with the library's commit and
+  `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it stops at a build other than
+  Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older than a source.
 - `tools/event_report/` - `event_report.exe`, run by hand on a player's Windows: the game's and its launcher's crashes
   and hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
   Reporting 1001; its LiveKernelEvent of graphics codes with the graphics, others apart, one noted twice within 2 s

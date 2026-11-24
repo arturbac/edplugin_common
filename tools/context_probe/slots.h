@@ -1,12 +1,13 @@
 // context_probe - the names of the methods in the D3D11 runtime's and DXGI's tables by slot, as the Windows SDK
 // (10.0.26100.0) declares them: ID3D11Device5 (with IUnknown), ID3D11DeviceContext4 (with IUnknown and
 // ID3D11DeviceChild) and IDXGISwapChain4 (with IUnknown, IDXGIObject and IDXGIDeviceSubObject); the text of a set of
-// slots, the slots two reads of a table differ in, and the names a list gained. No Windows header: built natively too
-// (test/native).
+// slots, the slots two reads of a table differ in, the names a list gained, and the result file's name. No Windows
+// header: built natively too (test/native).
 #pragma once
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstddef>
 #include <ranges>
 #include <span>
@@ -149,5 +150,20 @@ namespace context_probe
       else
         gained.push_back(name);
     return gained;
+    }
+
+  ///\brief the result file's name for a run started at the local time given, "context_probe-20261124-131500.txt"; the
+  /// `n`-th try for that second (from 2) gets "-<n>" before ".txt", so no run overwrites another's result
+  [[nodiscard]]
+  inline auto result_name(int year, int month, int day, int hour, int minute, int second, int n = 1) -> std::string
+    {
+    char name[64]{};
+    if(n > 1)
+      std::snprintf(name, sizeof name, "context_probe-%04d%02d%02d-%02d%02d%02d-%d.txt", year, month, day, hour, minute,
+                    second, n);
+    else
+      std::snprintf(name, sizeof name, "context_probe-%04d%02d%02d-%02d%02d%02d.txt", year, month, day, hour, minute,
+                    second);
+    return name;
     }
   }  // namespace context_probe
