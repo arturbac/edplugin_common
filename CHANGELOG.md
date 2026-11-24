@@ -25,7 +25,8 @@
   read in a function of their own under the fault handler, which catches a fault only there (the scan as it was in
   edupscale, reading in the `__try` body itself, ended the process on a fault in the test).
 - Sanitizers in test builds: the option `EDPLUGIN_COMMON_UBSAN_TRAP` (preset `edplugin_common-ubsan`), UBSan in trap
-  mode for the library and the targets linking it; `test/native` and `tools/test-native.sh`, the headers without a
+  mode for the C++ sources of the library and the targets linking it, with the definition
+  `EDPLUGIN_COMMON_UBSAN_TRAP=1`; `test/native` and `tools/test-native.sh`, the headers without a
   Windows header built natively with ASan and UBSan, and with TSan.
 
 ## 1.0.0

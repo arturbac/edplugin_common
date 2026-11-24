@@ -1,4 +1,4 @@
-# edplugin_common's headers without a Windows header (today shader/shader.h), built natively (Linux, clang++) with
+# edplugin_common's headers without a Windows header (shader/shader.h), built natively (Linux, clang++) with
 # sanitizers: tools/test-native.sh configures it twice, with address,undefined and with thread. A project of its own,
 # not a part of the library's build (which targets Windows).
 cmake_minimum_required(VERSION 3.29)

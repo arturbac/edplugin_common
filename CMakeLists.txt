@@ -72,12 +72,18 @@ target_compile_features(edplugin_common PUBLIC cxx_std_23)
 target_compile_definitions(edplugin_common PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(edplugin_common PUBLIC stralgo::stralgo)
 edplugin_common_warnings(edplugin_common)
-# a test build, never one for players: UndefinedBehaviorSanitizer in trap mode, with no runtime (the sanitizers'
-# runtimes from MSVC do not run under wine), for the library and every target that links it (PUBLIC)
-option(EDPLUGIN_COMMON_UBSAN_TRAP "UBSan in trap mode for the library and the targets linking it (a test build)" OFF)
+# a test build, never one for players: UndefinedBehaviorSanitizer in trap mode, with no runtime (MSVC's does not link
+# without AddressSanitizer's, which stops at the start under wine), for the C++ sources of the library and of every
+# target that links it (PUBLIC)
+option(EDPLUGIN_COMMON_UBSAN_TRAP "UBSan in trap mode for the C++ of the library and its linking targets (a test build)"
+       OFF)
 if(EDPLUGIN_COMMON_UBSAN_TRAP)
   message(WARNING "edplugin_common: EDPLUGIN_COMMON_UBSAN_TRAP is ON - a test build, not one for players")
-  target_compile_options(edplugin_common PUBLIC -fsanitize=undefined -fsanitize-trap=undefined)
+  # C++ only: a plugin's MASM sources (edloader's exports) go to llvm-ml64, which takes no such option
+  target_compile_options(edplugin_common
+                         PUBLIC "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=undefined;-fsanitize-trap=undefined>")
+  # for a plugin's log: the build says it is a test build
+  target_compile_definitions(edplugin_common PUBLIC EDPLUGIN_COMMON_UBSAN_TRAP=1)
 endif()
 
 if(PROJECT_IS_TOP_LEVEL)

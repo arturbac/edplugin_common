@@ -46,8 +46,8 @@
     {
       "name": "edplugin_common-ubsan",
       "displayName": "Release (clang-cl) with UBSan in trap mode, a test build, in build/edplugin_common-ubsan",
-      "inherits": [ "cfg-base" ],
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EDPLUGIN_COMMON_UBSAN_TRAP": "ON" },
+      "inherits": [ "edplugin_common-release" ],
+      "cacheVariables": { "EDPLUGIN_COMMON_UBSAN_TRAP": "ON" },
       "binaryDir": "${sourceDir}/build/${presetName}"
     }
   ],

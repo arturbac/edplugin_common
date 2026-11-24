@@ -209,11 +209,14 @@ One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The C
 Sanitizers, in test builds only (a player gets the release build, without them):
 
 - `EDPLUGIN_COMMON_UBSAN_TRAP=ON` (the preset `edplugin_common-ubsan`): UndefinedBehaviorSanitizer in trap mode, no
-  runtime, for the library and every target that links it (a plugin sets the option at its configure). Undefined
-  behaviour ends the program with `0xC000001D` (an illegal instruction); under a fault handler (`names_of`,
-  `first_export_with_prefix`) it comes back as a fault with that code. `tools/test.sh` runs the build as any other.
-- AddressSanitizer, ThreadSanitizer and UBSan with its runtime do not run for this target under wine: clang-cl has
-  no TSan for Windows, and the runtimes MSVC ships stop at the start under wine.
-- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`, today
-  `shader/shader.h`) built natively with clang++, with `-fsanitize=address,undefined` and with
-  `-fsanitize=thread`, and run; no wine and no MSVC.
+  runtime, for the library's and every linking target's C++ sources (a plugin sets the option at its configure);
+  they also get the definition `EDPLUGIN_COMMON_UBSAN_TRAP=1`. Undefined behaviour ends the program with
+  `0xC000001D` (an illegal instruction); under a fault handler (`names_of`, `first_export_with_prefix`) it comes back
+  as a fault with that code. `tools/test.sh` runs the build as any other.
+- Not for this target under wine: AddressSanitizer (the runtime MSVC ships stops at the start under wine), UBSan
+  with its runtime (MSVC's does not link without AddressSanitizer's), ThreadSanitizer (clang-cl has none for
+  Windows).
+- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`: `shader/shader.h`)
+  built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
+  `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
+  seconds (600 unless set); a run stopped by the limit is said with its exit code.
