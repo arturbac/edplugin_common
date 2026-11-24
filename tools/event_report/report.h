@@ -31,6 +31,11 @@ namespace event_report
   inline constexpr std::size_t value_most{200};
   /// a name shorter than this is not looked for in the text (it would be found inside other words)
   inline constexpr std::size_t token_least{4};
+  /// 100 ns intervals (a FILETIME's unit) in the period looked at
+  inline constexpr std::uint64_t period_filetime{std::uint64_t(days) * 24 * 60 * 60 * 10'000'000};
+
+  /// case-insensitive equality of UTF-8 texts of the same length
+  using fold_equal_t = bool (*)(std::string_view, std::string_view);
 
   struct local_time_t
     {
@@ -46,6 +51,11 @@ namespace event_report
   ///\brief "2026-11-20 21:14:07"
   [[nodiscard]]
   auto time_text(local_time_t const & t) -> std::string;
+
+  ///\brief whether `a` is later than `b`, by the times in UTC (their offsets taken off: an hour put back in autumn
+  /// sorts right)
+  [[nodiscard]]
+  auto later(local_time_t const & a, local_time_t const & b) noexcept -> bool;
 
   ///\brief "+01:00", "-03:30"
   [[nodiscard]]
@@ -108,13 +118,15 @@ namespace event_report
   struct wer_t
     {
     std::string event_type;
-    std::string report_id;
-    std::string app_name;
-    std::string app_path;  ///< for sorting the loaded files only, never in the report
+    std::string report_id;             ///< ReportIdentifier
+    std::string integrator_report_id;  ///< IntegratorReportIdentifier (newer Windows' id in Application Error 1000)
+    std::string app_name;              ///< may be a name for people ("Elite Dangerous"), not the exe's
+    std::string app_path;  ///< for the exe's name and sorting the loaded files only, never in the report
+    std::uint64_t event_time{};  ///< EventTime: a FILETIME (UTC); 0 when not there
     std::vector<std::pair<std::string, std::string>> signature;  ///< Sig[n].Name, Sig[n].Value
     std::vector<std::string> modules;                            ///< LoadedModule[n], whole paths
     bool modules_cut{};
-    local_time_t time;  ///< the folder's time, filled by the caller
+    local_time_t time;  ///< from event_time (the folder's time when there is none), filled by the caller
     };
 
   enum struct wer_error_e
@@ -133,6 +145,34 @@ namespace event_report
   [[nodiscard]]
   auto wer_error_text(wer_error_e e) noexcept -> std::string_view;
 
+  ///\brief whether a report folder's name is one of a crash, a hang or the kernel ("AppCrash_", "AppHang_", "Kernel_"),
+  /// any case; the others are not read
+  [[nodiscard]]
+  auto wer_folder_wanted(std::string_view folder) noexcept -> bool;
+
+  ///\brief the exe a saved report is about: AppPath's file name, AppName when there is no AppPath
+  [[nodiscard]]
+  auto wer_program(wer_t const & w) noexcept -> std::string_view;
+
+  ///\brief whether a saved report is one the report shows: the game's or the launcher's (its exe, AppName or Sig[0]'s
+  /// value, compared by `equal`) or a LiveKernelEvent
+  [[nodiscard]]
+  auto wer_wanted(wer_t const & w, fold_equal_t equal) -> bool;
+
+  ///\brief whether `id` (Application Error 1000's report id) is the saved report's ReportIdentifier or its
+  /// IntegratorReportIdentifier
+  [[nodiscard]]
+  auto wer_has_id(wer_t const & w, std::string_view id) noexcept -> bool;
+
+  ///\brief whether a crash dump's file name is the game's or the launcher's ("EliteDangerous...", "EDLaunch..."), any
+  /// case
+  [[nodiscard]]
+  auto dump_of_game(std::string_view name) noexcept -> bool;
+
+  ///\brief whether a System log provider is Intel's graphics driver ("igfx..."), any case
+  [[nodiscard]]
+  auto intel_graphics(std::string_view provider) noexcept -> bool;
+
   enum struct place_e
     {
     graphics_driver,  ///< a driver store: a graphics driver's files
@@ -144,9 +184,6 @@ namespace event_report
   ///\brief where a loaded file lies; `game_dir` and `windows_dir` end with '\'; empty `game_dir` matches nothing
   [[nodiscard]]
   auto place_of(std::string_view path, std::string_view game_dir, std::string_view windows_dir) noexcept -> place_e;
-
-  /// case-insensitive equality of UTF-8 texts of the same length
-  using fold_equal_t = bool (*)(std::string_view, std::string_view);
 
   struct token_t
     {
@@ -161,7 +198,8 @@ namespace event_report
     };
 
   ///\brief `text` with each token (of token_least bytes or more, at word boundaries, compared by `equal`), each SID
-  /// ("S-1-5-21-..."), each e-mail address and each "OneDrive - <name>" replaced; the count of replacements
+  /// ("S-1-5-21-...", Azure AD's "S-1-12-1-..."), each e-mail address and each "OneDrive - <name>" replaced; the count
+  /// of replacements
   [[nodiscard]]
   auto clean(std::string_view text, std::span<token_t const> tokens, fold_equal_t equal) -> cleaned_t;
 
@@ -173,7 +211,7 @@ namespace event_report
   struct dump_t
     {
     std::string name;
-    std::uint64_t bytes{};
+    std::optional<std::uint64_t> bytes;  ///< nothing when its size could not be read
     local_time_t time;
     };
 
@@ -191,15 +229,21 @@ namespace event_report
     local_time_t now;
     std::string windows_version;  ///< "10.0.26100"
     std::vector<source_t> sources;
-    std::vector<record_t> records;  ///< newest first
-    std::vector<wer_t> reports;     ///< newest first
-    std::vector<dump_t> dumps;      ///< newest first
-    std::vector<std::string> skipped;  ///< "2 saved reports not read: not UTF-16"
-    std::vector<std::string> notes;    ///< "the user name is too short to look for: check it yourself"
+    std::vector<record_t> records;  ///< any order: the report sorts them
+    std::vector<wer_t> reports;     ///< any order
+    std::vector<dump_t> dumps;      ///< any order
+    std::vector<std::string> skipped;  ///< "2 saved reports not read: not UTF-16" (the program's words and numbers)
+    std::vector<std::string> notes;    ///< "the user name is too short to look for: check it yourself" (the same)
     std::string windows_dir;           ///< ends with '\'; for sorting only
     };
 
-  ///\brief the report's text but its head: the summary and the sections (to be cleaned)
+  ///\brief `in`'s values from Windows (the logs' values and providers, the saved reports' fields, the dumps' names,
+  /// the Windows folder, cleaned alike so the loaded files sort the same) cleaned by clean(); the count of
+  /// replacements. The program's own words are not looked at: a user named "User" leaves "the user's" as it is.
+  [[nodiscard]]
+  auto clean_input(input_t & in, std::span<token_t const> tokens, fold_equal_t equal) -> int;
+
+  ///\brief the report's text but its head: the summary and the sections, from `in` as it is
   [[nodiscard]]
   auto body(input_t const & in) -> std::string;
 
@@ -207,7 +251,8 @@ namespace event_report
   [[nodiscard]]
   auto head(input_t const & in, int replaced) -> std::string;
 
-  ///\brief the whole report: head and body, cleaned by `tokens` and escaped; lines end with '\n'
+  ///\brief the whole report: head and the body of a copy of `in` put through clean_input(), escaped; lines end with
+  /// '\n'
   [[nodiscard]]
   auto report(input_t const & in, std::span<token_t const> tokens, fold_equal_t equal) -> std::string;
 

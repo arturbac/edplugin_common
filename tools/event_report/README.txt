@@ -10,12 +10,20 @@ and writes it to a text file you can read before you send it:
 - the names, sizes and dates of the game's crash dumps (the dumps themselves are not read or included).
 It shows the same text in its window. It takes a few seconds.
 
+What it does not see: only what Windows noted. A crash Windows did not note (for example one only the game's own
+crash reporter handled, or with logs cleared or kept shorter than 30 days) is not there; the
+game's own logs and the crash dumps' contents are not read; graphics driver errors are told by the names NVIDIA's, AMD's
+and Intel's drivers use in the log, other drivers' are not looked for. A saved report a standard account may not read
+(the machine's, in ProgramData) is listed under "Checks that could not run". "None" means none noted by Windows.
+
 What it writes: one file beside the program, named by the time of the run, such as
 event_report-20261124-131500.txt; each run gets a file of its own. The file holds the Windows version, the game's and
 files' versions, graphics driver names, error codes and times, Windows' report ids and names of loaded files - no
-paths. Your user name, your computer's name, e-mail addresses and account ids are replaced where the program finds them
-(the file says how many); when your user name is shorter than 4 letters the program cannot look for it safely and
-says so - then look for it yourself.
+paths. Your user name (and full name), your computer's name, domain names, e-mail addresses and account ids are
+replaced where the program finds them (the file says how many); when a name is shorter than 4 letters the program
+cannot look for it safely and says so - then look for it yourself. When the folder of the program cannot be written to,
+it says so and shows the text in its window only: move the folder to one you can write to (such as Documents) and run
+it again.
 
 What it does not do: no network, nothing sent anywhere, no administrator rights, no change to Windows or to the game.
 It reads only; the one file it writes is its result. Its own source is beside the program (event_report.cc and the

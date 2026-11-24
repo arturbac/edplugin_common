@@ -5,7 +5,6 @@
 #include <array>
 #include <cstdio>
 #include <map>
-#include <tuple>
 
 namespace event_report
   {
@@ -94,11 +93,26 @@ namespace event_report
       return i < r.values.size() ? cut(r.values[i]) : std::string{};
       }
 
+    ///\brief days from 1970-01-01 to a date of the proleptic Gregorian calendar
     [[nodiscard]]
-    auto later(local_time_t const & a, local_time_t const & b) noexcept -> bool
+    constexpr auto days_from_civil(int y, int m, int d) noexcept -> std::int64_t
       {
-      return std::tie(a.year, a.month, a.day, a.hour, a.minute, a.second)
-           > std::tie(b.year, b.month, b.day, b.hour, b.minute, b.second);
+      y -= m <= 2 ? 1 : 0;
+      int const era{(y >= 0 ? y : y - 399) / 400};
+      int const yoe{y - era * 400};
+      int const doy{(153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1};
+      int const doe{yoe * 365 + yoe / 4 - yoe / 100 + doy};
+      return std::int64_t(era) * 146097 + doe - 719468;
+      }
+
+    static_assert(days_from_civil(1970, 1, 1) == 0 and days_from_civil(2000, 3, 1) == 11017
+                  and days_from_civil(2026, 11, 24) == 20781);
+
+    [[nodiscard]]
+    constexpr auto utc_seconds(local_time_t const & t) noexcept -> std::int64_t
+      {
+      return days_from_civil(t.year, t.month, t.day) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
+           - std::int64_t(t.offset_minutes) * 60;
       }
 
     [[nodiscard]]
@@ -113,15 +127,22 @@ namespace event_report
       return out;
       }
 
+    enum struct code_e
+      {
+      exception,      ///< an exception code, hexadecimal with or without "0x"
+      stop_code,      ///< a stop code, decimal or hexadecimal with "0x" (number_value)
+      stop_code_hex,  ///< a stop code, hexadecimal with or without "0x" (LiveKernelEvent's "141")
+      };
+
     ///\brief "0xc0000005 (access violation ...)" for a code as the log gave it; the text itself when it is no number
     [[nodiscard]]
-    auto code_text(std::string_view text, bool bugcheck) -> std::string
+    auto code_text(std::string_view text, code_e kind) -> std::string
       {
-      std::optional<std::uint64_t> const code{bugcheck ? number_value(text) : hex_value(text)};
+      std::optional<std::uint64_t> const code{kind == code_e::stop_code ? number_value(text) : hex_value(text)};
       if(not code)
         return cut(text);
       std::string out{format("0x%llx", static_cast<unsigned long long>(*code))};
-      std::string_view const words{bugcheck ? bugcheck_text(*code) : exception_text(*code)};
+      std::string_view const words{kind == code_e::exception ? exception_text(*code) : bugcheck_text(*code)};
       if(not words.empty())
         (out += " (") += std::string{words} + ")";
       return out;
@@ -148,9 +169,11 @@ namespace event_report
       out += line + "\n";
       }
 
-    ///\brief the files a saved report holds, by where they lie
+    ///\brief the files a saved report holds, by where they lie; nothing for one that holds none (a LiveKernelEvent's)
     auto add_modules(std::string & out, wer_t const & w, std::string_view windows_dir) -> void
       {
+      if(w.modules.empty())
+        return;
       std::string game_dir{w.app_path.substr(0, w.app_path.find_last_of("\\/") + 1)};
       if(w.app_path.find_first_of("\\/") == std::string::npos)
         game_dir.clear();
@@ -169,8 +192,6 @@ namespace event_report
         }
       out += format("     files loaded into it (Windows' saved report, %zu%s):\n", w.modules.size(),
                     w.modules_cut ? ", the list cut" : "");
-      if(w.modules.empty())
-        return;
       add_list(out, "       graphics drivers:   ", drivers.empty() ? std::vector<std::string>{"none"} : drivers,
                "                           ");
       add_list(out, "       the game's folder:  ", game.empty() ? std::vector<std::string>{"none"} : game,
@@ -214,27 +235,35 @@ namespace event_report
       if(id.empty())
         return nullptr;
       for(wer_t const & w: in.reports)
-        if(w.report_id.size() == id.size() and equal_ascii_fold(w.report_id, id))
+        if(wer_has_id(w, id))
           return &w;
       return nullptr;
       }
 
-    ///\brief the exception's type from a .NET Runtime entry's text ("Exception Info: System.IO.IOException")
+    ///\brief the exception's type from a .NET Runtime entry's text: "System.IO.IOException" from "Exception Info:
+    /// System.IO.IOException" (.NET Framework) or "Exception Info: System.IO.IOException: <message>" (.NET), never the
+    /// message (it may hold a path)
     [[nodiscard]]
     auto dotnet_exception(std::string_view text) -> std::string
       {
       std::size_t const at{find_fold(text, "Exception Info:")};
       if(at == std::string_view::npos)
-        return cut(text);
+        return "(its type not found in the entry)";
       std::string_view rest{text.substr(at + 15)};
       rest.remove_prefix(std::min(rest.find_first_not_of(" \t"), rest.size()));
-      return cut(rest);
+      std::string_view const type{rest.substr(0, std::min(rest.find_first_of(": \t\r\n"), rest.size()))};
+      return type.empty() ? std::string{"(its type not found in the entry)"} : cut(type);
       }
     }  // namespace
 
   auto time_text(local_time_t const & t) -> std::string
     {
     return format("%04d-%02d-%02d %02d:%02d:%02d", t.year, t.month, t.day, t.hour, t.minute, t.second);
+    }
+
+  auto later(local_time_t const & a, local_time_t const & b) noexcept -> bool
+    {
+    return utc_seconds(a) > utc_seconds(b);
     }
 
   auto offset_text(int minutes) -> std::string
@@ -383,8 +412,7 @@ namespace event_report
       }
     if(provider == "Display" and id == 4101)
       return kind_e::display_reset;
-    if(equal_ascii_fold(provider, "nvlddmkm") or equal_ascii_fold(provider, "amdkmdag")
-       or starts_with_fold(provider, "igfx"))
+    if(equal_ascii_fold(provider, "nvlddmkm") or equal_ascii_fold(provider, "amdkmdag") or intel_graphics(provider))
       return kind_e::graphics_driver;
     if(provider == "Microsoft-Windows-Kernel-Power" and id == 41)
       return kind_e::restart;
@@ -435,6 +463,10 @@ namespace event_report
         out.event_type = val;
       else if(key == "ReportIdentifier")
         out.report_id = val;
+      else if(key == "IntegratorReportIdentifier")
+        out.integrator_report_id = val;
+      else if(key == "EventTime")
+        out.event_time = number_value(val).value_or(0);
       else if(key == "AppName")
         out.app_name = val;
       else if(key == "AppPath")
@@ -473,6 +505,43 @@ namespace event_report
       case wer_error_e::no_event_type: return "no EventType";
       }
     return "?";
+    }
+
+  auto wer_folder_wanted(std::string_view folder) noexcept -> bool
+    {
+    return starts_with_fold(folder, "AppCrash_") or starts_with_fold(folder, "AppHang_")
+        or starts_with_fold(folder, "Kernel_");
+    }
+
+  auto wer_program(wer_t const & w) noexcept -> std::string_view
+    {
+    return w.app_path.empty() ? std::string_view{w.app_name} : file_name_of(w.app_path);
+    }
+
+  auto wer_wanted(wer_t const & w, fold_equal_t equal) -> bool
+    {
+    if(equal_ascii_fold(w.event_type, "LiveKernelEvent"))
+      return true;
+    std::string_view const sig0{w.signature.empty() ? std::string_view{} : std::string_view{w.signature[0].second}};
+    for(std::string_view const name: {file_name_of(w.app_path), std::string_view{w.app_name}, sig0})
+      if(not name.empty() and (equal(name, game_exe) or equal(name, launcher_exe)))
+        return true;
+    return false;
+    }
+
+  auto wer_has_id(wer_t const & w, std::string_view id) noexcept -> bool
+    {
+    return not id.empty() and (equal_ascii_fold(w.report_id, id) or equal_ascii_fold(w.integrator_report_id, id));
+    }
+
+  auto dump_of_game(std::string_view name) noexcept -> bool
+    {
+    return starts_with_fold(name, "EliteDangerous") or starts_with_fold(name, "EDLaunch");
+    }
+
+  auto intel_graphics(std::string_view provider) noexcept -> bool
+    {
+    return starts_with_fold(provider, "igfx");
     }
 
   auto place_of(std::string_view path, std::string_view game_dir, std::string_view windows_dir) noexcept -> place_e
@@ -518,7 +587,8 @@ namespace event_report
       { return word_byte(c) or c == '.' or c == '%' or c == '+' or c == '-'; };
     for(std::size_t i{}; i < s.size();)
       {
-      if(s.substr(i).starts_with("S-1-5-21-") and (i == 0 or not word_byte(s[i - 1])))
+      if((s.substr(i).starts_with("S-1-5-21-") or s.substr(i).starts_with("S-1-12-1-"))
+         and (i == 0 or not word_byte(s[i - 1])))
         {
         std::size_t end{i + 9};
         while(end < s.size() and ((s[end] >= '0' and s[end] <= '9') or s[end] == '-'))
@@ -648,11 +718,12 @@ namespace event_report
       record_t const & r{*restarts[i]};
       if(r.kind == kind_e::restart)
         out += line_start(r) + "restart without a clean shutdown (Kernel-Power 41), stop code "
-             + code_text(value(r, 0), true) + "\n";
+             + code_text(value(r, 0), code_e::stop_code) + "\n";
       else if(r.kind == kind_e::blue_screen)
         {
         std::string const v{value(r, 0)};
-        out += line_start(r) + "blue screen, stop code " + code_text(v.substr(0, v.find(' ')), true) + "\n";
+        out += line_start(r) + "blue screen, stop code " + code_text(v.substr(0, v.find(' ')), code_e::stop_code)
+             + "\n";
         }
       else
         out += line_start(r) + "the shutdown before was unexpected (EventLog 6008)\n";
@@ -664,7 +735,7 @@ namespace event_report
       record_t const & r{*crashes[i]};
       out += line_start(r) + value(r, 0) + " " + value(r, 1) + "\n";
       out += "     module:    " + value(r, 3) + " " + value(r, 4) + "\n";
-      out += "     exception: " + code_text(value(r, 6), false) + "\n";
+      out += "     exception: " + code_text(value(r, 6), code_e::exception) + "\n";
       out += "     offset:    " + value(r, 7) + "\n";
       std::string const id{value(r, 12)};
       out += "     report id: " + (id.empty() ? std::string{"-"} : id) + "\n";
@@ -684,7 +755,7 @@ namespace event_report
       record_t const & r{*launcher[i]};
       if(r.id == 1000)
         out += line_start(r) + value(r, 0) + " " + value(r, 1) + ", module " + value(r, 3) + ", exception "
-             + code_text(value(r, 6), false) + "\n";
+             + code_text(value(r, 6), code_e::exception) + "\n";
       else
         out += line_start(r) + "EDLaunch.exe, .NET exception: "
              + dotnet_exception(r.values.empty() ? std::string_view{} : std::string_view{r.values[0]}) + "\n";
@@ -698,14 +769,9 @@ namespace event_report
         out += line_start(r) + "Display 4101: the display driver " + value(r, 0)
              + " stopped responding and recovered\n";
       else if(r.kind == kind_e::wer_kernel)
-        out += line_start(r) + "LiveKernelEvent " + code_text(value(r, 5), false) + "\n";
+        out += line_start(r) + "LiveKernelEvent " + code_text(value(r, 5), code_e::stop_code_hex) + "\n";
       else
-        {
-        out += line_start(r) + r.provider + format(" %u: ", r.id) + value(r, 0);
-        if(r.values.size() > 1)
-          out += "; " + value(r, 1);
-        out += "\n";
-        }
+        out += line_start(r) + r.provider + format(" %u: ", r.id) + value(r, 0) + "\n";
       }
 
     title("OTHER REPORTS OF THE GAME TO WINDOWS (Windows Error Reporting 1001)", other.size());
@@ -715,20 +781,25 @@ namespace event_report
       out += line_start(r) + value(r, 2) + ": " + value(r, 5) + " " + value(r, 6) + " " + value(r, 7) + "\n";
       }
 
+    // a saved report shown with a crash above is not shown again; one of a crash not shown (over the limit) is
     std::vector<wer_t const *> unlinked;
     for(wer_t const & w: in.reports)
       {
       bool linked{};
-      for(record_t const * r: crashes)
-        linked = linked or (not w.report_id.empty() and equal_ascii_fold(value(*r, 12), w.report_id));
+      for(std::size_t i{}; i != std::min(crashes.size(), shown); ++i)
+        linked = linked or wer_has_id(w, value(*crashes[i], 12));
       if(not linked)
         unlinked.push_back(&w);
       }
+    std::ranges::stable_sort(unlinked, [](wer_t const * a, wer_t const * b) { return later(a->time, b->time); });
     title("SAVED REPORTS OF WINDOWS WITH NO GAME CRASH ABOVE", unlinked.size());
     for(std::size_t i{}; i != std::min(unlinked.size(), shown); ++i)
       {
       wer_t const & w{*unlinked[i]};
-      out += "  " + time_text(w.time) + "  " + cut(w.event_type) + " " + cut(w.app_name) + "\n";
+      out += "  " + time_text(w.time) + "  " + cut(w.event_type);
+      if(not wer_program(w).empty())
+        out += " " + cut(wer_program(w));
+      out += "\n";
       for(std::size_t s{}; s != std::min<std::size_t>(w.signature.size(), 8); ++s)
         {
         // a path: its file name only
@@ -740,13 +811,21 @@ namespace event_report
       add_modules(out, w, in.windows_dir);
       }
 
-    title("CRASH DUMPS (not included; ask before sending one)", in.dumps.size());
-    for(std::size_t i{}; i != std::min(in.dumps.size(), shown); ++i)
+    std::vector<dump_t const *> dumps;
+    for(dump_t const & d: in.dumps)
+      dumps.push_back(&d);
+    std::ranges::stable_sort(dumps, [](dump_t const * a, dump_t const * b) { return later(a->time, b->time); });
+    title("CRASH DUMPS (not included; ask before sending one)", dumps.size());
+    for(std::size_t i{}; i != std::min(dumps.size(), shown); ++i)
       {
-      dump_t const & d{in.dumps[i]};
-      auto const megabytes{static_cast<unsigned long long>((d.bytes + (1u << 19)) >> 20)};
-      out += "  " + time_text(d.time) + "  " + cut(d.name)
-           + (d.bytes < (1u << 20) ? std::string{"  under 1 MB\n"} : format("  %llu MB\n", megabytes));
+      dump_t const & d{*dumps[i]};
+      out += "  " + time_text(d.time) + "  " + cut(d.name);
+      if(not d.bytes)
+        out += "  its size not read\n";
+      else if(*d.bytes < (1u << 20))
+        out += "  under 1 MB\n";
+      else
+        out += format("  %llu MB\n", static_cast<unsigned long long>((*d.bytes + (1u << 19)) >> 20));
       }
 
     out += "\nWHAT WAS READ\n";
@@ -782,17 +861,52 @@ namespace event_report
     out += format("  Period: the last %d days; the newest %zu entries of each kind are shown.\n", days, shown);
     out += "What it writes: this text only, to a file of its own beside the program. It holds the Windows\n";
     out += "version, the game's and files' versions, graphics driver names, error codes and times, Windows'\n";
-    out += "report ids and names of loaded files - no paths. User and computer names, e-mail addresses and\n";
-    out += format("account ids were replaced where found (%d replaced). Nothing is sent anywhere: read it, then\n"
-                  "send it back yourself.\n\n",
+    out += "report ids and names of loaded files - no paths. User, computer and domain names, e-mail addresses\n";
+    out += format("and account ids were replaced where found in what was read (%d replaced). Nothing is sent\n"
+                  "anywhere: read it, then send it back yourself.\n\n",
                   replaced);
     return out;
     }
 
+  auto clean_input(input_t & in, std::span<token_t const> tokens, fold_equal_t equal) -> int
+    {
+    int replaced{};
+    auto const one = [&](std::string & text)
+      {
+      cleaned_t c{clean(text, tokens, equal)};
+      replaced += c.replaced;
+      text = std::move(c.text);
+      };
+    for(record_t & r: in.records)
+      {
+      one(r.provider);
+      for(std::string & v: r.values)
+        one(v);
+      }
+    for(wer_t & w: in.reports)
+      {
+      for(std::string * const field: {&w.event_type, &w.report_id, &w.integrator_report_id, &w.app_name, &w.app_path})
+        one(*field);
+      for(auto & [name, value]: w.signature)
+        {
+        one(name);
+        one(value);
+        }
+      for(std::string & m: w.modules)
+        one(m);
+      }
+    for(dump_t & d: in.dumps)
+      one(d.name);
+    // cleaned as the paths are, so they keep their start; not in the report, its replacements not counted
+    in.windows_dir = clean(in.windows_dir, tokens, equal).text;
+    return replaced;
+    }
+
   auto report(input_t const & in, std::span<token_t const> tokens, fold_equal_t equal) -> std::string
     {
-    cleaned_t const cleaned{clean(body(in), tokens, equal)};
-    return escape_controls(head(in, cleaned.replaced)) + escape_controls(cleaned.text);
+    input_t cleaned{in};
+    int const replaced{clean_input(cleaned, tokens, equal)};
+    return escape_controls(head(in, replaced)) + escape_controls(body(cleaned));
     }
 
   auto result_name(local_time_t const & t, int n) -> std::string

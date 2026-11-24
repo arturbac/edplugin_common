@@ -4,14 +4,16 @@
 // crashed) and the crash dump folders (names, sizes and dates only), over the last 30 days. Only the fields report.h
 // keeps reach the text; user and computer names, e-mail addresses and SIDs are replaced, control characters escaped.
 // The text goes to event_report-<date>-<time>.txt beside the exe (a file of its own for each run) and to the console.
-// Nothing is sent anywhere; no administrator rights.
+// Nothing is sent anywhere; no administrator rights. wevtapi.dll is loaded late (CMakeLists.txt: /DELAYLOAD), after
+// SetDefaultDllDirectories has limited the search to System32: not a wevtapi.dll put beside the exe (Downloads).
 #include "fold.h"
 #include "report.h"
 
-#include <edplugin_common/file/file.h>
 #include <edplugin_common/paths/paths.h>
 
 #include <windows.h>
+#define SECURITY_WIN32
+#include <security.h>
 #include <winevt.h>
 
 #include <algorithm>
@@ -71,16 +73,34 @@ namespace
     return std::uint64_t(f.dwHighDateTime) << 32 | f.dwLowDateTime;
     }
 
+  ///\brief the time zone with its rules for each year (SystemTimeToTzSpecificLocalTimeEx), when Windows has it (wine
+  /// has not: then the rules of the current year)
+  struct time_zone_t
+    {
+    using to_local_t = BOOL(WINAPI *)(DYNAMIC_TIME_ZONE_INFORMATION const *, SYSTEMTIME const *, SYSTEMTIME *);
+    DYNAMIC_TIME_ZONE_INFORMATION zone{};
+    to_local_t to_local{};
+
+    time_zone_t()
+      {
+      HMODULE const kernel32{GetModuleHandleW(L"kernel32.dll")};
+      if(kernel32 and GetDynamicTimeZoneInformation(&zone) != TIME_ZONE_ID_INVALID)
+        to_local = reinterpret_cast<to_local_t>(
+          reinterpret_cast<void *>(GetProcAddress(kernel32, "SystemTimeToTzSpecificLocalTimeEx")));
+      }
+    };
+
   ///\brief a FILETIME (100 ns since 1601, UTC) as local time with its offset at that moment (the time zone's rules
   /// for that date: summer time or not)
   [[nodiscard]]
   auto local(std::uint64_t utc) -> local_time_t
     {
+    static time_zone_t const zone;
     FILETIME const f{DWORD(utc), DWORD(utc >> 32)};
     SYSTEMTIME u{}, l{};
     if(not FileTimeToSystemTime(&f, &u))
       return {};
-    if(not SystemTimeToTzSpecificLocalTime(nullptr, &u, &l))
+    if(not(zone.to_local ? zone.to_local(&zone.zone, &u, &l) : SystemTimeToTzSpecificLocalTime(nullptr, &u, &l)))
       l = u;
     // the offset from the two times as SYSTEMTIME gives them (whole milliseconds both)
     FILETIME lf{}, uf{};
@@ -161,34 +181,43 @@ namespace
     return number;
     }
 
-  ///\brief the entries of `channel` that `xpath` selects, newest first, those report.h shows kept
-  auto read_log(wchar_t const * channel, wchar_t const * xpath, char const * name, input_t & in) -> void
+  ///\brief the entries of `channel` that `xpath` selects, newest first, those report.h shows kept; with `intel_only`
+  /// Intel's graphics drivers' only (a query cannot name them by a prefix)
+  auto read_log(wchar_t const * channel, wchar_t const * xpath, char const * name, bool intel_only, input_t & in)
+    -> void
     {
     source_t source{name, 0, false, {}};
     evt_t const query{EvtQuery(nullptr, channel, xpath, EvtQueryChannelPath | EvtQueryReverseDirection)};
+    DWORD const query_error{query.h ? 0 : GetLastError()};
     evt_t const system{EvtCreateRenderContext(0, nullptr, EvtRenderContextSystem)};
-    evt_t const user{EvtCreateRenderContext(0, nullptr, EvtRenderContextUser)};
+    evt_t const user{system.h ? EvtCreateRenderContext(0, nullptr, EvtRenderContextUser) : nullptr};
     if(not query.h or not system.h or not user.h)
       {
       char why[64]{};
-      std::snprintf(why, sizeof why, "could not be read (error %lu)", GetLastError());
+      std::snprintf(why, sizeof why, "could not be read (error %lu)", query.h ? GetLastError() : query_error);
       source.failure = why;
       progress("Reading %s... could not", name);
       in.sources.push_back(std::move(source));
       return;
       }
     std::vector<std::byte> buffer(64 * 1024);
-    int kept{}, not_rendered{};
+    int kept{}, not_rendered{}, values_not_rendered{};
     for(;;)
       {
       EVT_HANDLE events[16]{};
       DWORD returned{};
       if(source.read >= scanned_most)
         {
-        source.at_limit = true;
+        // at the limit only when there is one more
+        if(EvtNext(query.h, 1, events, 5000, 0, &returned) and returned != 0)
+          {
+          source.at_limit = true;
+          EvtClose(events[0]);
+          }
         break;
         }
-      if(not EvtNext(query.h, DWORD(std::size(events)), events, 5000, 0, &returned))
+      DWORD const wanted{std::min<DWORD>(DWORD(std::size(events)), DWORD(scanned_most - source.read))};
+      if(not EvtNext(query.h, wanted, events, 5000, 0, &returned))
         {
         DWORD const error{GetLastError()};
         if(error != ERROR_NO_MORE_ITEMS)
@@ -217,6 +246,8 @@ namespace
         std::uint64_t const time{(sv[EvtSystemTimeCreated].Type & EVT_VARIANT_TYPE_MASK) == EvtVarTypeFileTime
                                    ? sv[EvtSystemTimeCreated].FileTimeVal
                                    : 0u};
+        if(intel_only and not intel_graphics(provider))
+          continue;
         std::vector<std::string> values;
         if(render(user.h, event.h, buffer, count))
           {
@@ -224,6 +255,8 @@ namespace
           for(DWORD k{}; k != std::min<DWORD>(count, 64); ++k)
             values.push_back(text_of(uv[k]));
           }
+        else
+          ++values_not_rendered;
         std::optional<kind_e> const kind{kind_of(provider, id, values)};
         if(not kind)
           continue;
@@ -233,6 +266,9 @@ namespace
       }
     if(not_rendered)
       in.skipped.push_back(std::string{name} + ": " + std::to_string(not_rendered) + " entries could not be read");
+    if(values_not_rendered)
+      in.skipped.push_back(std::string{name} + ": " + std::to_string(values_not_rendered)
+                           + " entries' values could not be read (an entry of the game among them is missed)");
     progress("Reading %s... %d entries read, %d about the game, its launcher or the graphics", name, source.read, kept);
     in.sources.push_back(std::move(source));
     }
@@ -243,10 +279,11 @@ namespace
     std::uint64_t time{};
     };
 
-  ///\brief the subfolders of `dir` (no reparse point), newest first, at most `most`; false when `dir` could not be
-  /// listed (`error` set; ERROR_PATH_NOT_FOUND / ERROR_FILE_NOT_FOUND for none)
+  ///\brief the subfolders (`folders`) or files of `dir` (no reparse point) written at `since` or later, newest first;
+  /// false when `dir` could not be listed (`error` set; ERROR_PATH_NOT_FOUND / ERROR_FILE_NOT_FOUND for none)
   [[nodiscard]]
-  auto list(std::wstring const & dir, bool folders, std::vector<folder_t> & found, DWORD & error) -> bool
+  auto list(std::wstring const & dir, bool folders, std::uint64_t since, std::vector<folder_t> & found, DWORD & error)
+    -> bool
     {
     WIN32_FIND_DATAW d{};
     HANDLE const h{FindFirstFileExW((dir + L"\\*").c_str(), FindExInfoBasic, &d,
@@ -260,7 +297,8 @@ namespace
       {
       bool const is_folder{(d.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0};
       std::wstring_view const name{d.cFileName};
-      if((d.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) or is_folder != folders or name == L"." or name == L"..")
+      if((d.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) or is_folder != folders or name == L"." or name == L".."
+         or filetime(d.ftLastWriteTime) < since)
         continue;
       found.push_back({d.cFileName, filetime(d.ftLastWriteTime)});
       }
@@ -293,15 +331,15 @@ namespace
     return ok;
     }
 
-  ///\brief the saved reports in a store of Windows Error Reporting that are the game's, the launcher's or a graphics
-  /// hang's (LiveKernelEvent)
-  auto read_store(std::wstring const & dir, char const * name, input_t & in, std::map<std::string, int> & skipped)
-    -> void
+  ///\brief the saved reports in a store of Windows Error Reporting written at `since` or later that are the game's, the
+  /// launcher's or a graphics hang's (LiveKernelEvent); of the folders, those of crashes, hangs and the kernel only
+  auto read_store(std::wstring const & dir, char const * name, std::uint64_t since, input_t & in,
+                  std::map<std::string, int> & skipped) -> void
     {
     source_t source{name, 0, false, {}};
     std::vector<folder_t> folders;
     DWORD error{};
-    if(not list(dir, true, folders, error))
+    if(not list(dir, true, since, folders, error))
       {
       if(error == ERROR_PATH_NOT_FOUND or error == ERROR_FILE_NOT_FOUND)
         source.name += " (no such folder)";
@@ -310,6 +348,7 @@ namespace
       in.sources.push_back(std::move(source));
       return;
       }
+    std::erase_if(folders, [](folder_t const & f) { return not wer_folder_wanted(utf8(f.path)); });
     if(folders.size() > std::size_t(wer_folders_most))
       {
       folders.resize(std::size_t(wer_folders_most));
@@ -332,24 +371,26 @@ namespace
         ++skipped[std::string{wer_error_text(e)}];
         continue;
         }
-      bool const game{equal_windows(w.app_name, "EliteDangerous64.exe") or equal_windows(w.app_name, "EDLaunch.exe")};
-      if(not game and not equal_windows(w.event_type, "LiveKernelEvent"))
+      if(not wer_wanted(w, equal_windows))
         continue;
-      w.time = local(f.time);
+      w.time = local(w.event_time != 0 ? w.event_time : f.time);
       in.reports.push_back(std::move(w));
       ++kept;
       }
-    progress("Reading %s... %d folders, %d about the game or the graphics", name, source.read, kept);
+    progress("Reading %s... %d folders of crashes, hangs or the kernel, %d about the game or the graphics", name,
+             source.read, kept);
     in.sources.push_back(std::move(source));
     }
 
-  ///\brief the dump files in `dir`; with `game_only` those named after the game or the launcher only
-  auto read_dumps(std::wstring const & dir, char const * name, bool game_only, input_t & in) -> void
+  ///\brief the dump files in `dir` written at `since` or later; with `game_only` those named after the game or the
+  /// launcher only
+  auto read_dumps(std::wstring const & dir, char const * name, bool game_only, std::uint64_t since, input_t & in)
+    -> void
     {
     source_t source{name, 0, false, {}};
     std::vector<folder_t> files;
     DWORD error{};
-    if(not list(dir, false, files, error))
+    if(not list(dir, false, since, files, error))
       {
       if(error == ERROR_PATH_NOT_FOUND or error == ERROR_FILE_NOT_FOUND)
         source.name += " (no such folder)";
@@ -361,11 +402,11 @@ namespace
     for(folder_t const & f: files)
       {
       std::string const file{utf8(f.path)};
-      if(game_only and not file.starts_with("EliteDangerous") and not file.starts_with("EDLaunch"))
+      if(game_only and not dump_of_game(file))
         continue;
       ++source.read;
       WIN32_FILE_ATTRIBUTE_DATA a{};
-      std::uint64_t bytes{};
+      std::optional<std::uint64_t> bytes;
       if(GetFileAttributesExW((dir + L"\\" + f.path).c_str(), GetFileExInfoStandard, &a))
         bytes = std::uint64_t(a.nFileSizeHigh) << 32 | a.nFileSizeLow;
       in.dumps.push_back({file, bytes, local(f.time)});
@@ -403,6 +444,17 @@ namespace
       if(length != 0 and length < MAX_PATH)
         add(edplugin_common::file_name_of(shortened), "<user>", "the profile folder's short name");
       }
+    // the account's full name (secur32 from System32 only)
+    if(HMODULE const secur32{LoadLibraryExW(L"secur32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)})
+      {
+      using name_t = BOOLEAN(SEC_ENTRY *)(EXTENDED_NAME_FORMAT, LPWSTR, PULONG);
+      auto const get{reinterpret_cast<name_t>(reinterpret_cast<void *>(GetProcAddress(secur32, "GetUserNameExW")))};
+      wchar_t full[257]{};
+      ULONG size{ULONG(std::size(full))};
+      if(get and get(NameDisplay, full, &size))
+        add(full, "<user>", "the account's full name");
+      FreeLibrary(secur32);
+      }
     for(COMPUTER_NAME_FORMAT const format: {ComputerNameNetBIOS, ComputerNameDnsHostname})
       {
       wchar_t computer[256]{};
@@ -410,6 +462,12 @@ namespace
       if(GetComputerNameExW(format, computer, &size))
         add(computer, "<computer>", "the computer name");
       }
+    // the domain of the account and of the computer (a local account's is the computer's name, found above)
+    add(edplugin_common::environment(L"USERDOMAIN"), "<domain>", "the account's domain");
+    wchar_t domain[256]{};
+    DWORD size{DWORD(std::size(domain))};
+    if(GetComputerNameExW(ComputerNameDnsDomain, domain, &size))
+      add(domain, "<domain>", "the computer's domain");
     return found;
     }
 
@@ -447,18 +505,63 @@ namespace
     L"*[System[((Provider[@Name='Application Error'] and EventID=1000) or (Provider[@Name='Application Hang'] and "
     L"EventID=1002) or (Provider[@Name='Windows Error Reporting'] and EventID=1001) or (Provider[@Name='.NET Runtime'] "
     L"and EventID=1026)) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]"};
-  // the providers wanted in the System log are filtered after reading (Intel's by a prefix, which the query cannot
-  // say): its errors and warnings of the period are read
+  // the System log by the providers' whole names, so that other entries cannot fill the limit before these; NVIDIA's
+  // and AMD's drivers' errors and warnings
   constexpr wchar_t system_query[]{
+    L"*[System[((Provider[@Name='Display'] and EventID=4101) or ((Provider[@Name='nvlddmkm'] or "
+    L"Provider[@Name='amdkmdag']) and (Level=1 or Level=2 or Level=3)) or "
+    L"(Provider[@Name='Microsoft-Windows-Kernel-Power'] and EventID=41) or "
+    L"(Provider[@Name='Microsoft-Windows-WER-SystemErrorReporting'] and EventID=1001) or "
+    L"(Provider[@Name='EventLog'] and EventID=6008)) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]"};
+  // Intel's drivers by a prefix, which a query cannot say: the System log's errors and warnings, kept by the prefix
+  // after reading (a log full of other errors may stop it at its limit: the report says so)
+  constexpr wchar_t intel_query[]{
     L"*[System[(Level=1 or Level=2 or Level=3) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]"};
   static_assert(30ull * 24 * 60 * 60 * 1000 == 2592000000ull and days == 30, "the queries' period is days");
+
+  ///\brief `text` to a new file beside the exe, "event_report-<date>-<time>[-n].txt" (CREATE_NEW: an earlier run's
+  /// result is never replaced); its name, empty when it could not be written (`error` set)
+  [[nodiscard]]
+  auto write_result(std::string const & text, local_time_t const & now, DWORD & error) -> std::string
+    {
+    error = ERROR_PATH_NOT_FOUND;
+    std::wstring const dir{edplugin_common::directory_of(edplugin_common::module_path(nullptr))};
+    for(int n{1}; not dir.empty() and n != 10; ++n)
+      {
+      std::string const name{result_name(now, n)};
+      HANDLE const f{CreateFileW((dir + L"\\" + wide(name)).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                 FILE_ATTRIBUTE_NORMAL, nullptr)};
+      if(f == INVALID_HANDLE_VALUE)
+        {
+        error = GetLastError();
+        if(error == ERROR_FILE_EXISTS)
+          continue;
+        return {};
+        }
+      DWORD written{};
+      bool const ok{WriteFile(f, text.data(), DWORD(text.size()), &written, nullptr) and written == text.size()};
+      error = ok ? 0 : GetLastError();
+      CloseHandle(f);
+      return ok ? name : std::string{};
+      }
+    return {};
+    }
   }  // namespace
 
 auto main() -> int
   {
-  SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+  // every load from System32 only, wevtapi.dll's (loaded late) too; without it the program does not go on
+  if(not SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32))
+    {
+    std::printf("event_report 1: Windows did not let it limit where its files are loaded from (error %lu): stopped\n"
+                "press Enter to close\n",
+                GetLastError());
+    (void)std::getchar();
+    return 1;
+    }
   FILETIME began{};
   GetSystemTimeAsFileTime(&began);
+  std::uint64_t const since{filetime(began) - period_filetime};
   input_t in;
   in.now = local(filetime(began));
   std::string text;
@@ -470,8 +573,9 @@ auto main() -> int
     UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
     if(length != 0 and length < MAX_PATH)
       in.windows_dir = utf8(std::wstring_view{windows, length}) + (windows[length - 1] == L'\\' ? "" : "\\");
-    read_log(L"Application", application_query, "the Application log", in);
-    read_log(L"System", system_query, "the System log", in);
+    read_log(L"Application", application_query, "the Application log", false, in);
+    read_log(L"System", system_query, "the System log", false, in);
+    read_log(L"System", intel_query, "the System log for Intel's graphics drivers", true, in);
     std::map<std::string, int> skipped;
     std::wstring const machine{edplugin_common::environment(L"ProgramData")};
     std::wstring const user{edplugin_common::environment(L"LOCALAPPDATA")};
@@ -482,26 +586,35 @@ auto main() -> int
         if(root.empty())
           in.sources.push_back({name, 0, false, "its folder not known"});
         else
-          read_store(root + L"\\Microsoft\\Windows\\WER\\" + store, name.c_str(), in, skipped);
+          read_store(root + L"\\Microsoft\\Windows\\WER\\" + store, name.c_str(), since, in, skipped);
         }
     for(auto const & [why, count]: skipped)
       in.skipped.push_back(std::to_string(count) + " saved report(s) not read: " + why);
     std::wstring const temp{edplugin_common::environment(L"TEMP")};
     if(not temp.empty())
       read_dumps(temp + L"\\Frontier Developments\\EliteDangerous\\CrashDumps", "the game's crash dump folder", false,
-                 in);
+                 since, in);
     if(not user.empty())
-      read_dumps(user + L"\\CrashDumps", "Windows' crash dump folder", true, in);
+      read_dumps(user + L"\\CrashDumps", "Windows' crash dump folder", true, since, in);
     std::vector<token_t> const names{tokens(in)};
     text = report(in, names, equal_windows);
     }
   catch(...)
     {
-    text += "\nstopped: an exception (out of memory or the like); the lines above are what was found\n";
+    // what was read before it, cleaned as always; nothing when even that fails
+    try
+      {
+      std::vector<token_t> const names{tokens(in)};
+      text = report(in, names, equal_windows)
+           + "\nstopped: an exception (out of memory or the like); the report above holds what was read before it\n";
+      }
+    catch(...)
+      {
+      text = "event_report 1 stopped: an exception (out of memory or the like) before it could write what it read\n";
+      }
     }
   std::printf("\n%s\n", ascii(text).c_str());
 
-  // beside the exe, under a name no file has yet: an earlier run's result is never replaced
   std::string file;
   for(char const c: text)
     {
@@ -509,23 +622,16 @@ auto main() -> int
       file += '\r';
     file += c;
     }
-  std::wstring const dir{edplugin_common::directory_of(edplugin_common::module_path(nullptr))};
-  std::string name;
-  std::wstring path;
-  for(int n{1}; not dir.empty() and n != 10; ++n)
-    {
-    name = result_name(in.now, n);
-    path = dir + L"\\" + wide(name);
-    if(GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES and GetLastError() == ERROR_FILE_NOT_FOUND)
-      break;
-    path.clear();
-    }
-  if(not path.empty() and edplugin_common::write_whole_file(path, file.data(), file.size()))
+  DWORD error{};
+  std::string const name{write_result(file, in.now, error)};
+  if(not name.empty())
     std::printf("written: %s beside the program - read it before you send it\n", name.c_str());
   else
-    std::printf("could not write %s beside the program; the text above is the result\n",
-                name.empty() ? "the result file" : name.c_str());
+    std::printf("could not write the result file beside the program (error %lu): the text above is the result;\n"
+                "to have the file, move the program's folder to one you can write to (such as Documents) and run it "
+                "again\n",
+                error);
   std::printf("press Enter to close\n");
   (void)std::getchar();
-  return 0;
+  return name.empty() ? 1 : 0;
   }

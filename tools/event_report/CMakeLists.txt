@@ -3,7 +3,10 @@
 # event_report_test (with EDPLUGIN_COMMON_TESTS) checks its part without Windows under Windows' comparison of names
 # (tools/test.sh, wine); test/native checks the same part natively.
 add_executable(event_report event_report.cc report.cc fold.cc event_report.rc event_report.manifest)
-target_link_libraries(event_report PRIVATE edplugin_common::edplugin_common wevtapi)
+target_link_libraries(event_report PRIVATE edplugin_common::edplugin_common wevtapi delayimp)
+# wevtapi.dll is no KnownDLL: loaded at its first call, after main's SetDefaultDllDirectories (System32 only), not at
+# the start, when a wevtapi.dll beside the exe would come first
+target_link_options(event_report PRIVATE /DELAYLOAD:wevtapi.dll)
 edplugin_common_warnings(event_report)
 
 # beside the library's test programs: tools/test.sh takes them from the build directory

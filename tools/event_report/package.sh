@@ -13,7 +13,7 @@ OUT=$(realpath -m "${2:?output dir}")
 NAME=event_report-1
 EXE=$BUILD/event_report.exe
 PROGRAM=(README.txt event_report.cc report.cc report.h fold.cc fold.h event_report.rc event_report.manifest)
-LIBRARY=(src/paths.cc src/file.cc include/edplugin_common/paths/paths.h include/edplugin_common/file/file.h)
+LIBRARY=(src/paths.cc include/edplugin_common/paths/paths.h)
 command -v zip > /dev/null || { echo "$0: no zip" >&2; exit 1; }
 [[ -f $EXE ]] || { echo "$0: no $EXE (build first)" >&2; exit 1; }
 grep -qx 'CMAKE_BUILD_TYPE:STRING=Release' "$BUILD/CMakeCache.txt" \
