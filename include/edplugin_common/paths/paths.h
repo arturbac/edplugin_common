@@ -36,7 +36,8 @@ namespace edplugin_common
   auto plugin_dir(wchar_t const * variable, HMODULE self) noexcept -> std::wstring;
 
   ///\brief the game's build as the plugins name their folders by it: the exe's size (its low 32 bits) and last write,
-  /// `<size>-<high 8 hex digits><low 8 hex digits>`. Told once in the process; empty when the exe cannot be read
+  /// `<size>-<high 8 hex digits><low 8 hex digits>`. Told once in the process; empty when the exe cannot be read. The
+  /// text lies in the library for the process's life and ends with a NUL (data() serves as a C string)
   [[nodiscard]]
   auto game_build_key() noexcept -> std::string_view;
   }  // namespace edplugin_common
