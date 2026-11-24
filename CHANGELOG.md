@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- event_report builds with the `kdev-*` presets too: its delay-load of `wevtapi.dll` goes to the linker through
+  CMake's `LINKER:` prefix (before, clang's GNU-style driver took `/DELAYLOAD:wevtapi.dll` for an input file); the
+  release build's import table as before (`wevtapi.dll` delay-loaded).
 - `settings_doc`: the doc's comment says `tools/test.sh or tools/doc.sh checks it is up to date` (before, only
   `tools/test.sh`, though a plugin's `tools/doc.sh` makes the check); a plugin's `doc/settings.md` changes with the
   next pin.
