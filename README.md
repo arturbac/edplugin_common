@@ -104,14 +104,20 @@ License: MIT (see `LICENSE`).
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
 - `tools/context_probe/` - `context_probe.exe`, a diagnosis run by hand on Windows, without the game (a player's
-  computer, a VM): on each hardware adapter, where the D3D11 runtime keeps the method tables of a device and of its
-  immediate context, which of the context's slots the runtime rewrites (multithread protection, `ClearState`), which
-  entries lie outside the system d3d11 and where their trampolines lead (`module+offset`), and the process's modules
-  outside the Windows folder (what was injected into it; a graphics driver's driver store is inside it). The lines go to
-  `context_probe.txt` beside it; a player's instructions in `README.txt` there. The decoding of jumps and the methods'
-  names by slot (`jump.h`, `slots.h`) need no Windows header. Built at the top level with
-  `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default); `tools/context_probe/package.sh <build directory> <output directory>`
-  makes the zip a player gets (the exe, its `README.txt`, its sources and `SHA256SUMS.txt`).
+  computer, a VM): on each hardware adapter and on the default device (no adapter given), where the D3D11 runtime
+  keeps the method tables of a device and of its immediate context, which of the context's slots the runtime rewrites
+  (multithread protection, `ClearState`), which entries lie outside the system d3d11 and where their trampolines lead
+  (`module+offset`), which entries in the system d3d11 start with a jump out of it (an inline hook), and the
+  process's modules outside the Windows folder (what was injected into it; a graphics driver's driver store is inside
+  it). Every table is read as a copy, under `__try`. It makes no window and no swap chain: an overlay that hooks only a
+  game, or only at `Present`, is not seen. The lines go to `context_probe.txt` beside it; a player's instructions in
+  `README.txt` there. The decoding of jumps and the methods' names by slot (`jump.h`, `slots.h`) need no Windows
+  header. Built at the top level with `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its test with
+  `EDPLUGIN_COMMON_TESTS` too); `tools/context_probe/package.sh <build directory> <output directory>` makes the zip a
+  player gets (the exe, its `README.txt`, its sources, the library's sources it uses, `LICENSE`, `SOURCE.txt` with the
+  library's commit and `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it stops at a
+  build other than Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older than a
+  source.
 
 ## Use in a plugin
 
@@ -221,8 +227,9 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
 d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once) and, when built,
-`context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11; in the same
-directory as the library's test) under wine, each in a new directory under the scratch directory, and prints `PASSED`
+`context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, and the read
+under `__try` on a page that cannot be read; run when the build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE`
+and `EDPLUGIN_COMMON_TESTS` on) under wine, each in a new directory under the scratch directory, and prints `PASSED`
 or `FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.

@@ -22,13 +22,19 @@ cp "$BUILD/edplugin_common_test.exe" "$BUILD/test_exports.dll" "$RUN/"
 rc=0
 wine_common_run "$RUN" "$RUN/out.txt" -- edplugin_common_test.exe || rc=$?
 cat "$RUN/out.txt"
-# tools/context_probe's following of table entries, without d3d11, when it was built (EDPLUGIN_COMMON_CONTEXT_PROBE;
-# a build directory that had it keeps its exe after the option is turned off)
+# tools/context_probe's following of table entries, without d3d11, when the build's configure has it
+# (EDPLUGIN_COMMON_CONTEXT_PROBE and EDPLUGIN_COMMON_TESTS; an exe left from an earlier configure is not run)
 probe_rc=0
-if [[ -f $BUILD/context_probe_test.exe ]]; then
-  cp "$BUILD/context_probe_test.exe" "$RUN/"
-  wine_common_run "$RUN" "$RUN/probe.txt" -- context_probe_test.exe || probe_rc=$?
-  cat "$RUN/probe.txt"
+if grep -qx 'EDPLUGIN_COMMON_CONTEXT_PROBE:BOOL=ON' "$BUILD/CMakeCache.txt" \
+  && grep -qx 'EDPLUGIN_COMMON_TESTS:BOOL=ON' "$BUILD/CMakeCache.txt"; then
+  if [[ -f $BUILD/context_probe_test.exe ]]; then
+    cp "$BUILD/context_probe_test.exe" "$RUN/"
+    wine_common_run "$RUN" "$RUN/probe.txt" -- context_probe_test.exe || probe_rc=$?
+    cat "$RUN/probe.txt"
+  else
+    echo "FAIL: no $BUILD/context_probe_test.exe though the configure has it (build first)"
+    probe_rc=1
+  fi
 fi
 # the first failure's code: the wine run's, then context_probe_test's, pin_test's, proxy_exports_test's
 ((rc != 0 || probe_rc == 0)) || rc=$probe_rc

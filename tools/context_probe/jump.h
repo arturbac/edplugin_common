@@ -1,14 +1,12 @@
 // context_probe - the jump a hook's trampoline starts with, decoded from its first bytes: where an entry of a method
 // table that lies outside every module leads. The forms x64 hooking libraries write: jmp rel8, jmp rel32, jmp
 // [rip+disp32] (also with REX.W), mov rax/r10/r11 imm64 with jmp to it, mov rax imm64 with push rax and ret, push imm32
-// with mov [rsp+4] imm32 and ret. Also the text of a set of slots as ranges. No Windows header: built natively with
-// sanitizers too (test/native).
+// with mov [rsp+4] imm32 and ret. No Windows header: built natively with sanitizers too (test/native).
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <string>
 
 namespace context_probe
   {
@@ -102,31 +100,6 @@ namespace context_probe
       case jump_e::none:        break;
       }
     return "no jump";
-    }
-
-  ///\brief the slots set in `changed` as ranges, "7-9, 12, 14-35"; "none" for none
-  [[nodiscard]]
-  inline auto ranges_text(std::span<bool const> changed) -> std::string
-    {
-    std::string text;
-    for(std::size_t i{}; i != changed.size();)
-      {
-      if(not changed[i])
-        {
-        ++i;
-        continue;
-        }
-      std::size_t end{i};
-      while(end + 1 != changed.size() and changed[end + 1])
-        ++end;
-      if(not text.empty())
-        text += ", ";
-      text += std::to_string(i);
-      if(end != i)
-        (text += '-') += std::to_string(end);
-      i = end + 1;
-      }
-    return text.empty() ? std::string{"none"} : text;
     }
 
   namespace detail

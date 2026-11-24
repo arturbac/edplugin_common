@@ -1,11 +1,13 @@
 // context_probe 5 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
 // method tables of a device and of its immediate context, whether it rewrites their entries, and what else in the
 // process changed them. It loads d3d11.dll and dxgi.dll from the system folder only, makes devices on every hardware
-// adapter (no flags, BGRA support, single-threaded), reads their tables, takes a snapshot of the context's entries
-// around a few calls of the runtime, follows the entries that lie outside the system d3d11 to the module they lead
-// to, and lists the process's modules outside the Windows folder (what was injected into it). The lines go to
-// context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
-// name and no path in the output.
+// adapter (no flags, BGRA support, single-threaded) and one with no adapter given, reads their tables, takes a
+// snapshot of the context's entries around a few calls of the runtime, follows the entries that lie outside the system
+// d3d11 to the module they lead to, tells the entries in the system d3d11 whose code starts with a jump out of it (an
+// inline hook), and lists the process's modules outside the Windows folder (what was injected into it). The lines go
+// to context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
+// name and no path in the output. Without a window and a swap chain, and in a process that is not the game: an
+// overlay that hooks only a game, or only at Present, is not seen. Every table is read as a copy, under __try.
 #include "follow.h"
 #include "jump.h"
 #include "slots.h"
@@ -96,8 +98,13 @@ namespace
   [[nodiscard]]
   auto utf8(wchar_t const * text) -> std::string
     {
-    char name[256]{};
-    WideCharToMultiByte(CP_UTF8, 0, text, -1, name, sizeof name - 1, nullptr, nullptr);
+    int const n{WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr)};
+    if(n <= 1)
+      return "?";
+    std::string name(std::size_t(n), '\0');
+    if(WideCharToMultiByte(CP_UTF8, 0, text, -1, name.data(), n, nullptr, nullptr) != n)
+      return "?";
+    name.pop_back();  // the terminating null
     return name;
     }
 
@@ -108,15 +115,26 @@ namespace
     {
     wchar_t windows[MAX_PATH]{};
     UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
+    // the list, again with a larger buffer while the process holds more modules than it (a few tries: modules may
+    // load meanwhile)
     std::vector<HMODULE> modules(1024);
     DWORD needed{};
-    if(length == 0 or length >= MAX_PATH
-       or not K32EnumProcessModules(GetCurrentProcess(), modules.data(), DWORD(modules.size() * sizeof(HMODULE)),
-                                    &needed))
+    bool listed{length != 0 and length < MAX_PATH};
+    for(int tries{}; listed and tries != 4; ++tries)
+      {
+      listed = K32EnumProcessModules(GetCurrentProcess(), modules.data(), DWORD(modules.size() * sizeof(HMODULE)),
+                                     &needed);
+      if(not listed or needed <= modules.size() * sizeof(HMODULE))
+        break;
+      modules.resize(needed / sizeof(HMODULE) + 64);
+      }
+    if(not listed)
       {
       say("modules outside the Windows folder: not read");
       return;
       }
+    if(needed > modules.size() * sizeof(HMODULE))
+      say("modules: the first %zu of %zu", modules.size(), std::size_t(needed / sizeof(HMODULE)));
     modules.resize(std::min<std::size_t>(modules.size(), needed / sizeof(HMODULE)));
     std::wstring windows_dir{windows, length};
     if(not windows_dir.ends_with(L'\\'))
@@ -165,8 +183,9 @@ namespace
     {
     snapshot_t s;
     s.table = *reinterpret_cast<void ***>(ctx);
-    for(; s.read != context4_entries and edplugin_common::readable(&s.table[s.read], sizeof(void *)); ++s.read)
-      s.entry[s.read] = s.table[s.read];
+    std::vector<void *> const entries{context_probe::read_entries(s.table, context4_entries)};
+    s.read = int(entries.size());
+    std::ranges::copy(entries, s.entry);
     return s;
     }
 
@@ -207,33 +226,36 @@ namespace
   auto copy_test(ID3D11DeviceContext * ctx, ID3D11Multithread * mt) -> void
     {
     void ** const table{*reinterpret_cast<void ***>(ctx)};
-    int n{};
-    while(n != table_scan and edplugin_common::readable(&table[n], sizeof(void *)) and table[n])
-      ++n;
+    std::vector<void *> const entries{context_probe::read_entries(table, table_scan)};
+    int const n{int(std::ranges::find(entries, nullptr) - entries.begin())};
     // the two words before the table too: the C++ type information
     auto const * const before{
       reinterpret_cast<void * const *>(reinterpret_cast<std::uintptr_t>(table) - 2 * sizeof(void *))};
-    if(n < context4_entries or not edplugin_common::readable(before, 2 * sizeof(void *)))
+    if(n < context4_entries or not edplugin_common::readable(before, 2 * sizeof(void *))
+       or not context_probe::read_caught(copy, before, 2 * sizeof(void *)))
       {
       say("  table pointer test: not done (table of %d entries)", n);
       return;
       }
-    std::memcpy(copy, before, std::size_t(2 + n) * sizeof(void *));
+    std::ranges::copy(entries.begin(), entries.begin() + n, copy + 2);
     void ** const mine{copy + 2};
     *reinterpret_cast<void ***>(ctx) = mine;
+    // the slots compared: those of the snapshot at the start too
+    int const compared{std::min({n, context4_entries, start.read})};
     auto look = [&](char const * step)
       {
       void ** const now{*reinterpret_cast<void ***>(ctx)};
-      int in_runtime{}, copy_changed{};
-      for(int i{}; i != std::min(n, context4_entries); ++i)
+      std::vector<void *> const runtime{context_probe::read_entries(table, compared)};
+      int in_runtime{compared - int(runtime.size())}, copy_changed{};  // an entry no longer read counts as changed
+      for(int i{}; i != compared; ++i)
         {
-        in_runtime += table[i] != start.entry[i] ? 1 : 0;
+        in_runtime += i < int(runtime.size()) and runtime[std::size_t(i)] != start.entry[i] ? 1 : 0;
         copy_changed += mine[i] != start.entry[i] ? 1 : 0;
         }
       say("  table pointer test, after %s: the object points at %s; entries changed in the copy %d, in the runtime's "
-          "table %d (of 149)",
+          "table %d (of %d)",
           step, now == mine ? "the copy still" : now == table ? "the RUNTIME'S table again" : "ANOTHER table",
-          copy_changed, in_runtime);
+          copy_changed, in_runtime, compared);
       };
     if(mt)
       {
@@ -266,8 +288,9 @@ namespace
                                     : "other";
     }
 
-  ///\brief a table's place and length, how many of its entries lie in the system d3d11, and each of its first named
-  /// entries that does not (up to foreign_lines), with where it leads
+  ///\brief a table's place and length, how many of its entries lie in the system d3d11, each of its named entries
+  /// that does not (up to foreign_lines) with where it leads, and each named entry in the system d3d11 whose code
+  /// starts with a jump out of it (up to foreign_lines); the table read once, as a copy
   template<std::size_t n>
   auto table_facts(char const * what, void * object, void ** table, std::array<std::string_view, n> const & names)
     -> void
@@ -282,48 +305,63 @@ namespace
     char section[9]{"-"};
     if(module)
       edplugin_common::section_of(module, table, section);
-    say("%s: table - object %lld bytes, same allocation as the object: %s", what, static_cast<long long>(offset),
-        allocation and allocation == object_allocation ? "yes" : "no");
+    // the distance only within one allocation: between a module's image and the heap it is ASLR's, nothing measured
+    if(allocation and allocation == object_allocation)
+      say("%s: table - object %lld bytes, same allocation as the object: yes", what, static_cast<long long>(offset));
+    else
+      say("%s: table - object in another allocation, same allocation as the object: no", what);
     say("%s: table memory %s, protection 0x%lX, module %s, section %s", what, type, static_cast<unsigned long>(protect),
         context_probe::module_name(module).c_str(), section);
+    std::vector<void *> const entries{context_probe::read_entries(table, table_scan)};
+    auto const entry = [&](int i) { return entries[std::size_t(i)]; };
     // the length two ways: up to the first null entry, and (as the plugins) up to the first entry that is not code
-    int to_null{}, to_code{};
-    while(to_null != table_scan and edplugin_common::readable(&table[to_null], sizeof(void *)) and table[to_null])
-      ++to_null;
-    while(to_code != table_scan and edplugin_common::readable(&table[to_code], sizeof(void *))
-          and edplugin_common::executable(table[to_code]))
-      ++to_code;
+    int const to_null{int(std::ranges::find(entries, nullptr) - entries.begin())};
+    int const to_code{int(std::ranges::find_if(entries, [](void * e) { return not edplugin_common::executable(e); })
+                          - entries.begin())};
     // the prefix whose entries are all the system d3d11's
     int d3d11_prefix{};
-    while(d3d11_prefix != to_null and edplugin_common::module_of(table[d3d11_prefix]) == system_d3d11)
+    while(d3d11_prefix != to_null and edplugin_common::module_of(entry(d3d11_prefix)) == system_d3d11)
       ++d3d11_prefix;
     int in_d3d11{}, in_other{}, in_none{};
     for(int i{}; i != std::min(to_null, 96); ++i)
       {
-      HMODULE const m{edplugin_common::module_of(table[i])};
+      HMODULE const m{edplugin_common::module_of(entry(i))};
       ++(m == nullptr ? in_none : m == system_d3d11 ? in_d3d11 : in_other);
       }
     say("%s: table entries %d to the first null, %d to the first not code, %d all in the system d3d11 (followed up to "
         "%d); first 96: system d3d11 %d, other module %d, no module %d",
         what, to_null, to_code, d3d11_prefix, table_scan, in_d3d11, in_other, in_none);
-    // each named entry outside the system d3d11: its method, where it lies, and where its jumps lead
-    int told{}, foreign{};
+    // each named entry outside the system d3d11: its method, where it lies, and where its jumps lead; each one in it
+    // whose first instruction jumps out of it
+    int told{}, foreign{}, hooks_told{}, hooks{};
     for(int i{}; i != std::min(to_null, int(n)); ++i)
       {
-      HMODULE const m{edplugin_common::module_of(table[i])};
+      std::string const method{context_probe::method_name(names, i)};
+      HMODULE const m{edplugin_common::module_of(entry(i))};
       if(m == system_d3d11)
+        {
+        std::string const out_of{context_probe::jump_out_of(entry(i), system_d3d11)};
+        if(out_of.empty())
+          continue;
+        ++hooks;
+        if(hooks_told == foreign_lines)
+          continue;
+        ++hooks_told;
+        say("  %s slot %d %s: in the system d3d11, its code jumps out: %s", what, i, method.c_str(), out_of.c_str());
         continue;
+        }
       ++foreign;
       if(told == foreign_lines)
         continue;
       ++told;
-      std::string const lies{context_probe::where(table[i])};
-      std::string const leads{m ? std::string{} : "; " + context_probe::follow_jumps(table[i])};
-      say("  %s slot %d %s: %s%s", what, i, std::string{context_probe::method_name(names, i)}.c_str(), lies.c_str(),
-          leads.c_str());
+      std::string const lies{context_probe::where(entry(i))};
+      std::string const leads{m ? std::string{} : "; " + context_probe::follow_jumps(entry(i))};
+      say("  %s slot %d %s: %s%s", what, i, method.c_str(), lies.c_str(), leads.c_str());
       }
     if(foreign > told)
       say("  %s: %d more entries outside the system d3d11 not told", what, foreign - told);
+    say("%s: named entries in the system d3d11 whose code starts with a jump out of it: %d%s", what, hooks,
+        hooks > hooks_told ? " (the first told)" : "");
     }
 
   ///\brief whether the runtime's lock is taken again by the thread holding it (Enter twice, a method that takes it,
@@ -524,8 +562,14 @@ namespace
         a->Release();
       factory6->Release();
       }
+    constexpr UINT most_adapters{64};
     for(UINT i{};; ++i)
       {
+      if(i == most_adapters)
+        {
+        say("adapters: the first %u told, the rest not", most_adapters);
+        break;
+        }
       IDXGIAdapter1 * a{};
       HRESULT const listed{factory->EnumAdapters1(i, &a)};
       if(listed == DXGI_ERROR_NOT_FOUND)
@@ -559,31 +603,49 @@ namespace
     factory->Release();
     return hardware;
     }
-  }  // namespace
 
-auto main() -> int
-  {
-  // every dll loaded from here on from the system folder only (a d3d11.dll beside the exe would be a mod)
-  SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
-  say("context_probe 5");
-  windows_version();
-  system_d3d11 = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-  create_device = system_d3d11 ? reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(
-                                   reinterpret_cast<void *>(GetProcAddress(system_d3d11, "D3D11CreateDevice")))
-                               : nullptr;
-  if(not create_device)
-    say("d3d11.dll from the system folder: not loaded (error %lu)", GetLastError());
-  else
+  [[nodiscard]]
+  auto flag_sets() -> std::array<UINT, 3>
     {
+    return {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)};
+    }
+
+  ///\brief the probe itself, its lines in `out`
+  auto run() -> void
+    {
+    say("context_probe 5");
+    say("looked at in this program, without a window or a swap chain: an overlay that hooks only a game, or only at "
+        "Present, is not seen here");
+    windows_version();
+    system_d3d11 = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    create_device = system_d3d11 ? reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(
+                                     reinterpret_cast<void *>(GetProcAddress(system_d3d11, "D3D11CreateDevice")))
+                                 : nullptr;
+    if(not create_device)
+      {
+      say("d3d11.dll from the system folder: not loaded (error %lu)", GetLastError());
+      return;
+      }
     say("d3d11.dll from the system folder: yes, version %s", module_version(system_d3d11).c_str());
-    std::vector<hardware_t> const hardware{adapters()};
+    std::vector<hardware_t> hardware{adapters()};
     if(hardware.empty())
       {
       say("adapters: no hardware one listed; the default adapter (D3D_DRIVER_TYPE_HARDWARE) probed");
-      for(UINT const flags: {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)})
+      for(UINT const flags: flag_sets())
         if(not lock_hung)
           probe(nullptr, flags);
+      return;
       }
+    // each adapter's reference released even when a probe throws
+    struct release_t
+      {
+      std::vector<hardware_t> & list;
+      ~release_t()
+        {
+        for(hardware_t const & h: list)
+          h.adapter->Release();
+        }
+      } const release{hardware};
     for(hardware_t const & h: hardware)
       {
       say("");
@@ -592,15 +654,39 @@ auto main() -> int
       else
         {
         say("=== adapter %u probed", h.index);
-        for(UINT const flags: {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)})
+        for(UINT const flags: flag_sets())
           if(not lock_hung)
             probe(h.adapter, flags);
         }
-      h.adapter->Release();
+      }
+    // what a game gets that names no adapter: the card Windows and the driver's profile choose
+    say("");
+    if(lock_hung)
+      say("=== the default device (no adapter given) not probed: the runtime's lock hung before");
+    else
+      {
+      say("=== the default device (no adapter given) probed");
+      probe(nullptr, 0);
       }
     }
-  say("");
-  modules_outside_windows();
+  }  // namespace
+
+auto main() -> int
+  {
+  // every dll loaded from here on from the system folder only (a d3d11.dll beside the exe would be a mod)
+  SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
+  // what was found until an exception is still written
+  try
+    {
+    run();
+    say("");
+    modules_outside_windows();
+    }
+  catch(...)
+    {
+    say("");
+    say("stopped: an exception (out of memory or the like); the lines above are what was found");
+    }
   // beside the exe (a long path too)
   std::wstring const exe{edplugin_common::module_path(nullptr)};
   std::wstring const dir{edplugin_common::directory_of(exe)};
@@ -610,7 +696,9 @@ auto main() -> int
     std::printf("\ncould not write context_probe.txt beside the exe; the lines above are the result\n");
   std::printf("press Enter to close\n");
   (void)std::getchar();
-  // a hung thread holds the runtime's lock: the process ends without waiting for it
   std::fflush(stdout);
+  // a hung thread holds the runtime's lock: the process ends without the modules' detach, which could wait for it
+  if(lock_hung)
+    TerminateProcess(GetCurrentProcess(), 0);
   ExitProcess(0);
   }

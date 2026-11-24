@@ -1,9 +1,12 @@
 // context_probe's following of entries, without d3d11 (tools/test.sh runs it under wine): trampolines of each form
 // written into a page of its own lead to a function of kernel32 (or the kernelbase it forwards to), two jumps one after
 // the other are followed, ordinary code and a page that cannot be read stop it, and memory outside every module is
-// told by its kind.
+// told by its kind; a read of a page that cannot be read comes back false (the fault caught, the process goes on), a
+// table is read up to such a page, and a jump out of a module is told from one inside it.
 #include "follow.h"
 #include "jump.h"
+
+#include <edplugin_common/memory/memory.h>
 
 #include <windows.h>
 
@@ -12,6 +15,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
   {
@@ -122,6 +126,45 @@ auto main() -> int
   // a page that cannot be read
   std::string const closed_text{context_probe::follow_jumps(closed)};
   check(closed_text == "not readable", "a page that cannot be read", closed_text);
+
+  // the read under __try itself, on the page that cannot be read: false, and the process goes on
+  std::uint8_t bytes[8]{};
+  bool const fault_read{context_probe::read_caught(bytes, closed, sizeof bytes)};
+  check(not fault_read, "read_caught: a page that cannot be read gives false", fault_read ? "true" : "false");
+  bool const page_read{context_probe::read_caught(bytes, rip_jump, sizeof bytes)};
+  check(page_read and bytes[0] == 0xFF and bytes[1] == 0x25, "read_caught: a readable page gives its bytes",
+        page_read ? "true" : "false");
+
+  // a table whose third entry would lie on a page that cannot be read: two entries
+  auto * const pair{
+    static_cast<std::uint8_t *>(VirtualAlloc(nullptr, 8192, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE))};
+  DWORD old_protect{};
+  if(pair and VirtualProtect(pair + 4096, 4096, PAGE_NOACCESS, &old_protect))
+    {
+    auto * const table{reinterpret_cast<void **>(pair + 4096 - 2 * sizeof(void *))};
+    table[0] = page;
+    table[1] = nullptr;
+    std::vector<void *> const entries{context_probe::read_entries(table, 5)};
+    check(entries.size() == 2 and entries[0] == page and entries[1] == nullptr,
+          "read_entries: up to the page that cannot be read", std::to_string(entries.size()) + " entries");
+    }
+  else
+    check(false, "read_entries: no pair of pages", "");
+  if(pair)
+    VirtualFree(pair, 0, MEM_RELEASE);
+
+  // jump_out_of: the trampoline's jump leads into the target's module (not out of it), out of another module
+  HMODULE const target_module{edplugin_common::module_of(target)};
+  HMODULE const ntdll{GetModuleHandleW(L"ntdll.dll")};
+  std::string const into{context_probe::jump_out_of(rip_jump, target_module)};
+  check(into.empty(), "jump_out_of: a jump into the module itself is not one out", into);
+  std::string const out_of{target_module == ntdll ? std::string{} : context_probe::jump_out_of(rip_jump, ntdll)};
+  check(starts_with(out_of, "jmp [rip] -> ") and ends_in_module(out_of), "jump_out_of: a jump out of the module",
+        out_of);
+  std::string const no_jump{context_probe::jump_out_of(plain, ntdll)};
+  check(no_jump.empty(), "jump_out_of: ordinary code is no jump out", no_jump);
+  std::string const unread{context_probe::jump_out_of(closed, ntdll)};
+  check(unread.empty(), "jump_out_of: a page that cannot be read is no jump out", unread);
 
   // where: a module's function, private memory, the module's name
   std::string const in_module{context_probe::where(target)};

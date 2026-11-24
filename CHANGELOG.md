@@ -33,10 +33,11 @@
   file an environment variable names, the result for the plugin's log, `settings_doc_error_name` for an error);
   never thrown.
 - `tools/context_probe/`: `context_probe.exe` 5, after the probe edworld used on other Windows: every hardware adapter
-  (the default and the high performance one named), the slots the runtime rewrites, each table entry outside the
-  system d3d11 with its method's name and the module its trampoline leads to, the process's modules outside the
-  Windows folder; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`;
-  `tools/context_probe/package.sh` for the zip a player gets.
+  (the default and the high performance one named) and the default device, the slots the runtime rewrites, each
+  table entry outside the system d3d11 with its method's name and the module its trampoline leads to, the entries in
+  the system d3d11 that start with a jump out of it, the process's modules outside the Windows folder; tables read as
+  copies under `__try`; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`;
+  `tools/context_probe/package.sh` for the zip a player gets (Release only, from a committed tree).
 
 ## 1.0.0
 
