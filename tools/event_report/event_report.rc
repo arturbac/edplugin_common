@@ -1,0 +1,26 @@
+// the version resource by numbers instead of winver.h (not on the cross build's resource path): 0x40004 =
+// VOS_NT_WINDOWS32, 1 = VFT_APP. The manifest is a source of the target (CMake embeds it)
+1 VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS 0x40004
+FILETYPE 1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "edplugin_common"
+      VALUE "FileDescription", "Elite Dangerous events from Windows logs, for a player to send back"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "InternalName", "event_report"
+      VALUE "OriginalFilename", "event_report.exe"
+      VALUE "ProductName", "edplugin_common event_report"
+      VALUE "ProductVersion", "1.0.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

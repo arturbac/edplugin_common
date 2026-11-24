@@ -52,6 +52,12 @@
   copied out), `for_each_export`, `export_address`, `for_each_import`; `memory/pe_range.h`, its ranges, also in
   `test/native`. `section_of` (now under the guard) and `first_export_with_prefix` read through it. `pe_headers`
   removed (`pe_image` instead).
+- `tools/event_report/`: `event_report.exe` 1, the game's events from Windows' logs and Windows Error Reporting's saved
+  reports for a player to read and send back: crashes, hangs, graphics driver resets and errors, restarts and blue
+  screens, the files loaded into the game when it crashed, crash dumps' names; only kept fields, no path, names and ids
+  replaced; each run's result in a file of its own, named by the run's time; `event_report_test.exe` and
+  `test/event_report_test.sh` in `tools/test.sh`, the part without Windows in `test/native`;
+  `tools/event_report/package.sh`.
 
 ## 1.0.0
 

@@ -184,6 +184,22 @@ License: MIT (see `LICENSE`).
   library's commit and `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it stops at a
   build other than Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older than a
   source.
+- `tools/event_report/` - `event_report.exe`, run by hand on a player's Windows: the game's and its launcher's crashes
+  and hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
+  Reporting 1001), graphics driver resets and errors, restarts without a clean shutdown and blue screens (the System
+  log's errors and warnings, kept by provider: Display 4101, nvlddmkm, amdkmdag, igfx*, Microsoft-Windows-Kernel-Power
+  41, Microsoft-Windows-WER-SystemErrorReporting 1001, EventLog 6008), Windows Error Reporting's saved reports of the
+  game in the machine's and the user's ReportArchive and ReportQueue (the files loaded into the game, as graphics
+  drivers, the game's folder and elsewhere) and the crash dump folders (names, sizes and dates), over the last 30 days.
+  Only the fields `report.h` keeps reach the text, no path; user and computer names (also the profile folder's short
+  name), e-mail addresses and SIDs are replaced, control characters and the marks that turn the direction of text
+  escaped. The text goes to `event_report-<date>-<time>.txt` beside it (a file of its own for each run) and to the
+  console; a player's instructions in `README.txt` there. The part without Windows (`report.h`, `report.cc`) is checked
+  natively (`test/native`) and under wine with Windows' comparison of names (`event_report_test.exe`);
+  `test/event_report_test.sh` runs the program under wine in a prefix of its own with a saved report and a dump put
+  there and checks its result. Built at the top level with `EDPLUGIN_COMMON_EVENT_REPORT` (ON by default; its test with
+  `EDPLUGIN_COMMON_TESTS` too); `tools/event_report/package.sh <build directory> <output directory>` makes the zip a
+  player gets, as context_probe's.
 
 ## Use in a plugin
 
@@ -301,8 +317,9 @@ the CPU printed; the stack overflows are skipped under wine, which ends such a t
 exception, so they are checked on Windows only) and, when built,
 `context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, and the read
 under `__try` on a page that cannot be read; run when the build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE`
-and `EDPLUGIN_COMMON_TESTS` on) under wine, each in a new directory under the scratch directory, and prints `PASSED`
-or `FAILED`.
+and `EDPLUGIN_COMMON_TESTS` on), and `event_report_test.exe` with `test/event_report_test.sh` (when it has
+`EDPLUGIN_COMMON_EVENT_REPORT` and `EDPLUGIN_COMMON_TESTS` on; the latter in a wine prefix of its own) under wine, each
+in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.
 
