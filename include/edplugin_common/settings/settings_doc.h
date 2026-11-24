@@ -59,7 +59,8 @@ namespace edplugin_common
     setting_read_e read;
     ///\brief the values that make sense, "(clamped)" where the plugin holds the value to them; empty = any
     std::string_view range;
-    ///\brief what the setting does; "\n" between the lines the ini's comment has, "; " in the doc (" " after a ":" or a ";")
+    ///\brief what the setting does; "\n" between the lines the ini's comment has, "; " in the doc (" " after a ":" or
+    /// a ";" of the text)
     std::string_view about;
     };
 
@@ -118,12 +119,14 @@ namespace edplugin_common
     settings_doc_status_e status;
     settings_doc_error_e error;  ///< with invalid, else none
     unsigned long system_error;  ///< GetLastError() with cannot_open and write_failed, else 0
-    wchar_t path[260];           ///< the variable's value (cut to its first 259 characters with path_too_long), for the plugin's log
+    ///\brief the variable's value (cut to its first 259 characters with path_too_long), for the plugin's log
+    wchar_t path[260];
     };
 
   ///\brief the doc written to the file the environment variable names (made anew); nothing without the variable.
   /// The library logs nothing: the plugin logs the result. Never throws
   [[nodiscard]]
-  auto write_settings_doc(wchar_t const * variable, settings_doc_t const & doc, std::span<setting_row_t const> rows) noexcept
+  auto write_settings_doc(wchar_t const * variable, settings_doc_t const & doc,
+                          std::span<setting_row_t const> rows) noexcept
     -> settings_doc_result_t;
   }  // namespace edplugin_common

@@ -111,6 +111,13 @@ namespace
     auto const bare{edplugin_common::settings_doc(no_groups, {})};
     check(bare.has_value() and *bare == "# t\n\n<!-- Made by t; tools/test.sh checks\n     it is up to date. Change the table, not this file. -->\n\ni\n",
           "settings_doc: no groups, the head and the intro only");
+
+    // the ";" of an entity is not the text's: a line end after "<" or ">" is "; " as after any other character
+    setting_row_t const entity[]{{"e"sv, ""sv, 0, setting_read_e::live, "<a>\nb"sv, "x <\ny"sv}};
+    auto const made_entity{edplugin_common::settings_doc(doc, entity)};
+    check(made_entity.has_value()
+            and made_entity->find("| `e` | empty | &lt;a&gt;; b | x &lt;; y |\n"sv) != std::string::npos,
+          "settings_doc: a line end after < or > (an entity) is \"; \"");
     }
 
   auto errors() -> void

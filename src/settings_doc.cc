@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <iterator>
 #include <new>
 
 using namespace std::string_view_literals;
@@ -13,11 +14,13 @@ namespace edplugin_common
   {
   namespace
     {
-    ///\brief a table cell's text: "|" escaped, "\r" dropped, "\n" as "; " (as " " after a ":" or a ";", which already
-    /// part what comes before from what follows); with `markup`, "<" and ">" outside code spans as entities
+    ///\brief a table cell's text: "|" escaped, "\r" dropped, "\n" as "; " (as " " after a ":" or a ";" of the text,
+    /// which already part what comes before from what follows); with `markup`, "<" and ">" outside code spans as
+    /// entities (whose own ";" is not the text's)
     auto append_cell(std::string & out, std::string_view text, bool markup) -> void
       {
       bool in_code{};
+      char last{};  // the text's last character before this one, "\r" left out
       for(char const c: text)
         {
         if(c == '`')
@@ -27,13 +30,14 @@ namespace edplugin_common
         else if(c == '\r')
           continue;
         else if(c == '\n')
-          out += not out.empty() and (out.back() == ':' or out.back() == ';') ? " "sv : "; "sv;
+          out += last == ':' or last == ';' ? " "sv : "; "sv;
         else if(markup and not in_code and c == '<')
           out += "&lt;"sv;
         else if(markup and not in_code and c == '>')
           out += "&gt;"sv;
         else
           out += c;
+        last = c;
         }
       }
 
@@ -62,6 +66,7 @@ namespace edplugin_common
       return settings_doc_error_e::none;
       }
 
+    [[nodiscard]]
     auto make_doc(settings_doc_t const & doc, std::span<setting_row_t const> rows) -> std::string
       {
       std::string out;
@@ -124,7 +129,8 @@ namespace edplugin_common
       }
     }
 
-  auto write_settings_doc(wchar_t const * variable, settings_doc_t const & doc, std::span<setting_row_t const> rows) noexcept
+  auto write_settings_doc(wchar_t const * variable, settings_doc_t const & doc,
+                          std::span<setting_row_t const> rows) noexcept
     -> settings_doc_result_t
     {
     settings_doc_result_t result{settings_doc_status_e::not_asked, settings_doc_error_e::none, 0, {}};
@@ -158,7 +164,8 @@ namespace edplugin_common
       return result;
       }
     DWORD written{};
-    bool const whole{WriteFile(h, text->data(), static_cast<DWORD>(text->size()), &written, nullptr) and written == text->size()};
+    bool const whole{WriteFile(h, text->data(), static_cast<DWORD>(text->size()), &written, nullptr)
+                     and written == text->size()};
     DWORD const e{whole ? 0u : GetLastError()};
     bool const closed{CloseHandle(h) != 0};
     if(not whole or not closed)
