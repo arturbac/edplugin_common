@@ -205,3 +205,15 @@ d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at on
 directory under the scratch directory, and prints `PASSED` or `FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.
+
+Sanitizers, in test builds only (a player gets the release build, without them):
+
+- `EDPLUGIN_COMMON_UBSAN_TRAP=ON` (the preset `edplugin_common-ubsan`): UndefinedBehaviorSanitizer in trap mode, no
+  runtime, for the library and every target that links it (a plugin sets the option at its configure). Undefined
+  behaviour ends the program with `0xC000001D` (an illegal instruction); under a fault handler (`names_of`,
+  `first_export_with_prefix`) it comes back as a fault with that code. `tools/test.sh` runs the build as any other.
+- AddressSanitizer, ThreadSanitizer and UBSan with its runtime do not run for this target under wine: clang-cl has
+  no TSan for Windows, and the runtimes MSVC ships stop at the start under wine.
+- `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`, today
+  `shader/shader.h`) built natively with clang++, with `-fsanitize=address,undefined` and with
+  `-fsanitize=thread`, and run; no wine and no MSVC.

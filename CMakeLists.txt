@@ -72,6 +72,13 @@ target_compile_features(edplugin_common PUBLIC cxx_std_23)
 target_compile_definitions(edplugin_common PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(edplugin_common PUBLIC stralgo::stralgo)
 edplugin_common_warnings(edplugin_common)
+# a test build, never one for players: UndefinedBehaviorSanitizer in trap mode, with no runtime (the sanitizers'
+# runtimes from MSVC do not run under wine), for the library and every target that links it (PUBLIC)
+option(EDPLUGIN_COMMON_UBSAN_TRAP "UBSan in trap mode for the library and the targets linking it (a test build)" OFF)
+if(EDPLUGIN_COMMON_UBSAN_TRAP)
+  message(WARNING "edplugin_common: EDPLUGIN_COMMON_UBSAN_TRAP is ON - a test build, not one for players")
+  target_compile_options(edplugin_common PUBLIC -fsanitize=undefined -fsanitize-trap=undefined)
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
   option(EDPLUGIN_COMMON_TESTS "build the test programs (tools/test.sh runs them under wine)" ON)
