@@ -301,6 +301,14 @@ namespace event_report
     std::vector<token_t> const full_name{{"Jan Kowalski", "<user>"}};
     check(clean("by jan kowalski, Jan Kowalskiego", full_name, equal).text == "by <user>, Jan Kowalskiego",
           "clean: a full name with a space");
+    std::vector<token_t> const short_first{{"Artur", "<user>"}, {"Artur Bac", "<user>"}, {"CONTOSO", "<computer>"},
+                                           {"contoso.local", "<computer>"}};
+    check(clean("by Artur Bac on contoso.local", short_first, equal).text == "by <user> on <computer>",
+          "clean: the longest name where several match, whatever their order");
+    std::vector<token_t> const account{{"kowalski", "<user>"}};
+    cleaned_t const address{clean("mail kowalski@firma.example.pl, kowalski", account, equal)};
+    check(address.text == "mail <e-mail>, <user>" and address.replaced == 2,
+          "clean: an address whose local part is the account's name goes whole, its domain too");
     if(unicode_fold)
       {
       std::vector<token_t> const polish{{"\xC5\x81UKASZ", "<user>"}};  // ŁUKASZ

@@ -4,8 +4,8 @@
 # (tools/test.sh, wine); test/native checks the same part natively.
 add_executable(event_report event_report.cc report.cc fold.cc event_report.rc event_report.manifest)
 target_link_libraries(event_report PRIVATE edplugin_common::edplugin_common wevtapi delayimp)
-# wevtapi.dll is no KnownDLL: loaded at its first call, after main's SetDefaultDllDirectories (System32 only), not at
-# the start, when a wevtapi.dll beside the exe would come first
+# wevtapi.dll is no KnownDLL: delay-loaded, not at the start, when a wevtapi.dll beside the exe would come first; main
+# loads it from System32 (after SetDefaultDllDirectories) before its first call, so a failed load is said, not a fault
 target_link_options(event_report PRIVATE /DELAYLOAD:wevtapi.dll)
 edplugin_common_warnings(event_report)
 

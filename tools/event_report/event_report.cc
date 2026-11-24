@@ -1,5 +1,5 @@
-// event_report 1 - Elite Dangerous' events from Windows' logs, for a player to send back: crashes and hangs of the game
-// and its launcher (the Application log), graphics driver resets and errors, restarts without a clean shutdown and blue
+// event_report 1 - Elite Dangerous' events from Windows' logs, for a player to send back: crashes of the game and its
+// launcher and the game's hangs (the Application log), graphics driver resets and errors, restarts without a clean shutdown and blue
 // screens (the System log), Windows Error Reporting's saved reports of the game (the files loaded into it when it
 // crashed) and the crash dump folders (names, sizes and dates only), over the last 30 days. Only the fields report.h
 // keeps reach the text; user and computer names, e-mail addresses and SIDs are replaced, control characters escaped.
@@ -373,7 +373,11 @@ namespace
         }
       if(not wer_wanted(w, equal_windows))
         continue;
-      w.time = local(w.event_time != 0 ? w.event_time : f.time);
+      // the report's own time when it lies in the period (up to a day past now for a clock set back); else the
+      // folder's, which list() kept to the period
+      std::uint64_t const now_ft{since + period_filetime};
+      bool const in_period{w.event_time >= since and w.event_time <= now_ft + 24ull * 60 * 60 * 10'000'000};
+      w.time = local(in_period ? w.event_time : f.time);
       in.reports.push_back(std::move(w));
       ++kept;
       }
@@ -471,6 +475,7 @@ namespace
     return found;
     }
 
+  [[nodiscard]]
   auto windows_version() -> std::string
     {
     using rtl_t = LONG(WINAPI *)(OSVERSIONINFOW *);
@@ -542,6 +547,8 @@ namespace
       bool const ok{WriteFile(f, text.data(), DWORD(text.size()), &written, nullptr) and written == text.size()};
       error = ok ? 0 : GetLastError();
       CloseHandle(f);
+      if(not ok)
+        (void)DeleteFileW((dir + L"\\" + wide(name)).c_str());  // no cut file left under a result's name
       return ok ? name : std::string{};
       }
     return {};
@@ -573,9 +580,20 @@ auto main() -> int
     UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
     if(length != 0 and length < MAX_PATH)
       in.windows_dir = utf8(std::wstring_view{windows, length}) + (windows[length - 1] == L'\\' ? "" : "\\");
-    read_log(L"Application", application_query, "the Application log", false, in);
-    read_log(L"System", system_query, "the System log", false, in);
-    read_log(L"System", intel_query, "the System log for Intel's graphics drivers", true, in);
+    // wevtapi.dll loaded here, from System32, and kept: its delay load at the first call would end the program with a
+    // fault when it could not be loaded
+    if(LoadLibraryExW(L"wevtapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32))
+      {
+      read_log(L"Application", application_query, "the Application log", false, in);
+      read_log(L"System", system_query, "the System log", false, in);
+      read_log(L"System", intel_query, "the System log for Intel's graphics drivers", true, in);
+      }
+    else
+      {
+      std::string const why{"wevtapi.dll could not be loaded (error " + std::to_string(GetLastError()) + ")"};
+      for(char const * name: {"the Application log", "the System log", "the System log for Intel's graphics drivers"})
+        in.sources.push_back({name, 0, false, why});
+      }
     std::map<std::string, int> skipped;
     std::wstring const machine{edplugin_common::environment(L"ProgramData")};
     std::wstring const user{edplugin_common::environment(L"LOCALAPPDATA")};

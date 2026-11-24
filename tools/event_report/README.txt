@@ -2,8 +2,8 @@ event_report 1 - Elite Dangerous events from Windows' logs, for a player to send
 
 What it does: it reads what Windows itself noted in the last 30 days about Elite Dangerous and your graphics card,
 and writes it to a text file you can read before you send it:
-- crashes and hangs of the game (EliteDangerous64.exe) and of its launcher (EDLaunch.exe), from Windows' Application
-  log;
+- crashes of the game (EliteDangerous64.exe) and of its launcher (EDLaunch.exe) and the game's hangs, from Windows'
+  Application log;
 - graphics driver resets and errors, restarts without a clean shutdown and blue screens, from Windows' System log;
 - Windows Error Reporting's saved reports of the game's crashes: the names of the files that were loaded into the game
   when it crashed (programs that put themselves into games, such as overlays or security software, show up there);
@@ -14,14 +14,15 @@ What it does not see: only what Windows noted. A crash Windows did not note (for
 crash reporter handled, or with logs cleared or kept shorter than 30 days) is not there; the
 game's own logs and the crash dumps' contents are not read; graphics driver errors are told by the names NVIDIA's, AMD's
 and Intel's drivers use in the log, other drivers' are not looked for. A saved report a standard account may not read
-(the machine's, in ProgramData) is listed under "Checks that could not run". "None" means none noted by Windows.
+(the machine's, in ProgramData) is listed under "Checks that could not run" when its folder cannot be read, under
+"Skipped" when the folder can but the report in it cannot. "None" means none noted by Windows.
 
 What it writes: one file beside the program, named by the time of the run, such as
 event_report-20261124-131500.txt; each run gets a file of its own. The file holds the Windows version, the game's and
 files' versions, graphics driver names, error codes and times, Windows' report ids and names of loaded files - no
 paths. Your user name (and full name), your computer's name, domain names, e-mail addresses and account ids are
-replaced where the program finds them (the file says how many); when a name is shorter than 4 letters the program
-cannot look for it safely and says so - then look for it yourself. When the folder of the program cannot be written to,
+replaced where the program finds them (the file says how many); when a name is shorter than 4 letters (a letter outside
+English counts as 2 or more) the program cannot look for it safely and says so - then look for it yourself. When the folder of the program cannot be written to,
 it says so and shows the text in its window only: move the folder to one you can write to (such as Documents) and run
 it again.
 

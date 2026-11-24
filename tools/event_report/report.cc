@@ -93,6 +93,19 @@ namespace event_report
       return i < r.values.size() ? cut(r.values[i]) : std::string{};
       }
 
+    ///\brief a field that may hold a path (Windows Error Reporting's parameters): a path by its file name only
+    [[nodiscard]]
+    auto path_field(std::string_view v) -> std::string
+      {
+      return v.find_first_of("\\/") != std::string_view::npos ? cut(file_name_of(v)) + " (its folder left out)" : cut(v);
+      }
+
+    [[nodiscard]]
+    auto field(record_t const & r, std::size_t i) -> std::string
+      {
+      return i < r.values.size() ? path_field(r.values[i]) : std::string{};
+      }
+
     ///\brief days from 1970-01-01 to a date of the proleptic Gregorian calendar
     [[nodiscard]]
     constexpr auto days_from_civil(int y, int m, int d) noexcept -> std::int64_t
@@ -502,6 +515,9 @@ namespace event_report
         }
       else if(int const m{index(key, "LoadedModule")}; m >= 0)
         {
+        // an index given again keeps its first value (not counted as cut)
+        if(modules.contains(m))
+          continue;
         if(modules.size() < wer_modules_most)
           modules[m] = val;
         else
@@ -585,31 +601,11 @@ namespace event_report
   auto clean(std::string_view text, std::span<token_t const> tokens, fold_equal_t equal) -> cleaned_t
     {
     cleaned_t out;
-    // the names, at word boundaries
-    std::string named;
-    for(std::size_t i{}; i < text.size();)
-      {
-      bool matched{};
-      if(i == 0 or not word_byte(text[i - 1]))
-        for(token_t const & t: tokens)
-          {
-          std::size_t const n{t.text.size()};
-          if(n < token_least or i + n > text.size() or (i + n != text.size() and word_byte(text[i + n]))
-             or not equal(text.substr(i, n), t.text))
-            continue;
-          named += t.replacement;
-          ++out.replaced;
-          i += n;
-          matched = true;
-          break;
-          }
-      if(not matched)
-        named += text[i++];
-      }
-    // SIDs, e-mail addresses, OneDrive's organisation
-    std::string & r{out.text};
-    r.reserve(named.size());
-    std::string_view const s{named};
+    // SIDs, e-mail addresses, OneDrive's organisation first: an address whose local part is a name goes whole
+    std::string marked;
+    marked.reserve(text.size());
+    std::string & r{marked};
+    std::string_view const s{text};
     auto const local_byte = [](char c)
       { return word_byte(c) or c == '.' or c == '%' or c == '+' or c == '-'; };
     for(std::size_t i{}; i < s.size();)
@@ -655,6 +651,32 @@ namespace event_report
           }
         }
       r += s[i++];
+      }
+    // the names, at word boundaries; where several match at one place the longest (a full name before the account's
+    // name it starts with)
+    std::string & named{out.text};
+    named.reserve(marked.size());
+    std::string_view const m{marked};
+    for(std::size_t i{}; i < m.size();)
+      {
+      token_t const * best{};
+      if(i == 0 or not word_byte(m[i - 1]))
+        for(token_t const & t: tokens)
+          {
+          std::size_t const n{t.text.size()};
+          if(n < token_least or i + n > m.size() or (i + n != m.size() and word_byte(m[i + n]))
+             or (best and n <= best->text.size()) or not equal(m.substr(i, n), t.text))
+            continue;
+          best = &t;
+          }
+      if(best)
+        {
+        named += best->replacement;
+        ++out.replaced;
+        i += best->text.size();
+        }
+      else
+        named += m[i++];
       }
     return out;
     }
@@ -815,7 +837,7 @@ namespace event_report
     for(std::size_t i{}; i != std::min(other.size(), shown); ++i)
       {
       record_t const & r{*other[i]};
-      out += line_start(r) + value(r, 2) + ": " + value(r, 5) + " " + value(r, 6) + " " + value(r, 7) + "\n";
+      out += line_start(r) + value(r, 2) + ": " + field(r, 5) + " " + field(r, 6) + " " + field(r, 7) + "\n";
       }
 
     // a saved report shown with a crash above is not shown again; one of a crash not shown (over the limit) is
@@ -839,11 +861,7 @@ namespace event_report
       out += "\n";
       for(std::size_t s{}; s != std::min<std::size_t>(w.signature.size(), 8); ++s)
         {
-        // a path: its file name only
-        std::string_view const v{w.signature[s].second};
-        bool const path{v.find_first_of("\\/") != std::string_view::npos};
-        out += "     " + cut(w.signature[s].first) + ": "
-             + (path ? cut(file_name_of(v)) + " (its folder left out)" : cut(v)) + "\n";
+        out += "     " + cut(w.signature[s].first) + ": " + path_field(w.signature[s].second) + "\n";
         }
       add_modules(out, w, in.windows_dir);
       }
@@ -890,7 +908,8 @@ namespace event_report
     out += "event_report 1 - Elite Dangerous events from Windows' logs (" + time_text(in.now) + " "
          + offset_text(in.now.offset_minutes) + ", Windows " + in.windows_version + ")\n\n";
     out += "What this program checks:\n";
-    out += "  - Windows' Application log: crashes and hangs of EliteDangerous64.exe and EDLaunch.exe\n";
+    out += "  - Windows' Application log: crashes of EliteDangerous64.exe and EDLaunch.exe, hangs of "
+           "EliteDangerous64.exe\n";
     out += "  - Windows' System log: graphics driver resets and errors, restarts without a clean shutdown and blue "
            "screens\n";
     out += "  - Windows Error Reporting's saved reports of the game: the files loaded into the game when it crashed\n";

@@ -202,7 +202,8 @@ namespace event_report
     int replaced{};
     };
 
-  ///\brief `text` with each token (of token_least bytes or more, at word boundaries, compared by `equal`), each SID
+  ///\brief `text` with each token (of token_least bytes or more, at word boundaries, compared by `equal`, the longest
+  /// where several match), each SID
   /// ("S-1-5-21-...", Azure AD's "S-1-12-1-..."), each e-mail address and each "OneDrive - <name>" replaced; the count
   /// of replacements
   [[nodiscard]]

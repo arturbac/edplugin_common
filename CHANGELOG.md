@@ -17,7 +17,7 @@
   outside ASCII may stand in them.
 - The modules `paths` (`environment`, `module_path`, `directory_of`, `file_name_of`, `plugin_dir`, edloader's variables'
   names, `game_build_key`), `file` (`read_text`, `write_time`, `write_whole_file`, `append_to_file`, `map_file_rw`,
-  `map_file_ro`), `memory` (`readable`, `executable`, `module_of`, `pe_headers`, `section_of`,
+  `map_file_ro`), `memory` (`readable`, `executable`, `module_of`, `section_of`,
   `first_export_with_prefix`), `shader` (`fnv1a64`, `fnv_3dmigoto`, `migoto_name_text`, `names_of`) and `dxgi`
   (`is_integer`), taken from the plugins. Changed on the way: `read_text` tells a file it could not read from a
   missing one; paths and environment values over 259 characters are whole; a mapping of 0 bytes is refused (to

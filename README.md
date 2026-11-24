@@ -191,7 +191,7 @@ License: MIT (see `LICENSE`).
   `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it stops at a build other than
   Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older than a source.
 - `tools/event_report/` - `event_report.exe`, run by hand on a player's Windows: the game's and its launcher's crashes
-  and hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
+  and the game's hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
   Reporting 1001; its LiveKernelEvent of graphics codes with the graphics, others apart, one noted twice within 2 s
   counted once), graphics driver resets and errors, restarts without a clean shutdown and blue screens (the System
   log queried by provider: Display 4101, nvlddmkm and amdkmdag errors and warnings, Microsoft-Windows-Kernel-Power 41,

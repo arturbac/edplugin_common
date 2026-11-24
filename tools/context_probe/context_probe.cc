@@ -16,7 +16,6 @@
 #include "slots.h"
 #include "window.h"
 
-#include <edplugin_common/file/file.h>
 #include <edplugin_common/memory/memory.h>
 #include <edplugin_common/paths/paths.h>
 
@@ -520,6 +519,11 @@ namespace
       waited = WAIT_TIMEOUT;
       }
     CloseHandle(thread);
+    if(waited == WAIT_FAILED)
+      {
+      hr = HRESULT_FROM_WIN32(GetLastError());  // the wait itself failed: no Present known hung, its result unknown
+      return true;
+      }
     if(waited != WAIT_OBJECT_0)
       return false;
     hr = work.hr;
@@ -654,7 +658,11 @@ namespace
         {
         present_hung = true;
         chain.p = nullptr;  // held by the hung thread: neither released nor used
-        window.abandon();   // nor its window: a hook on the window's messages may wait for that thread
+        // nor the DXGI objects behind it: a release may wait on a lock that thread holds
+        factory.p = nullptr;
+        adapter.p = nullptr;
+        dxgi.p = nullptr;
+        window.abandon();  // nor its window: a hook on the window's messages may wait for that thread
         say("swap chain: Present %d did not come back in 10 s; nothing more with this device", i);
         return;
         }
@@ -940,19 +948,32 @@ auto main() -> int
   // beside the exe (a long path too)
   std::wstring const exe{edplugin_common::module_path(nullptr)};
   std::wstring const dir{edplugin_common::directory_of(exe)};
-  // a name no file has yet: an earlier run's result is never replaced
+  // a new file (CREATE_NEW: an earlier run's result is never replaced, also by a run at the same time); a write that
+  // fails leaves no file under the name
   std::string name;
-  std::wstring path;
-  for(int n{1}; not dir.empty() and n != 10; ++n)
+  bool written{};
+  for(int n{1}; not dir.empty() and n != 10 and not written; ++n)
     {
     name = context_probe::result_name(began.wYear, began.wMonth, began.wDay, began.wHour, began.wMinute, began.wSecond,
                                       n);
-    path = dir + L"\\" + std::wstring{name.begin(), name.end()};  // ASCII only
-    if(GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES and GetLastError() == ERROR_FILE_NOT_FOUND)
+    std::wstring const path{dir + L"\\" + std::wstring{name.begin(), name.end()}};  // ASCII only
+    HANDLE const f{CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if(f == INVALID_HANDLE_VALUE)
+      {
+      if(GetLastError() == ERROR_FILE_EXISTS)
+        continue;
       break;
-    path.clear();
+      }
+    DWORD done{};
+    written = WriteFile(f, out.data(), DWORD(out.size()), &done, nullptr) and done == out.size();
+    CloseHandle(f);
+    if(not written)
+      {
+      (void)DeleteFileW(path.c_str());
+      break;
+      }
     }
-  if(not path.empty() and edplugin_common::write_whole_file(path, out.data(), out.size()))
+  if(written)
     std::printf("\nwritten: %s beside the exe\n", name.c_str());
   else
     std::printf("\ncould not write %s beside the exe; the lines above are the result\n",

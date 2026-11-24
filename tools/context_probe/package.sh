@@ -14,8 +14,11 @@ NAME=context_probe-6
 EXE=$BUILD/context_probe.exe
 PROBE=(README.txt context_probe.cc follow.cc follow.h jump.h slots.h window.cc window.h context_probe.rc
   context_probe.manifest)
-LIBRARY=(src/memory.cc src/paths.cc src/file.cc include/edplugin_common/memory/memory.h
-  include/edplugin_common/paths/paths.h include/edplugin_common/file/file.h)
+# the library's files the probe's sources reach (their includes, and the source of each header reached)
+LIBRARY=(src/guard.cc src/log.cc src/memory.cc src/paths.cc src/pe.cc include/edplugin_common/core/lock.h
+  include/edplugin_common/core/once_flag.h include/edplugin_common/guard/guard.h include/edplugin_common/log/log.h
+  include/edplugin_common/memory/memory.h include/edplugin_common/memory/pe.h include/edplugin_common/memory/pe_range.h
+  include/edplugin_common/paths/paths.h include/edplugin_common/text/format.h)
 command -v zip > /dev/null || { echo "$0: no zip" >&2; exit 1; }
 [[ -f $EXE ]] || { echo "$0: no $EXE (build first)" >&2; exit 1; }
 grep -qx 'CMAKE_BUILD_TYPE:STRING=Release' "$BUILD/CMakeCache.txt" \
