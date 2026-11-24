@@ -6,7 +6,8 @@
 # UTF-16) and a crash dump are put in the prefix's folders for them, the program runs twice, and its result files are
 # checked: two of them, each whole: the head, the loaded files told from elsewhere, the folder of another kind not
 # read, the one not UTF-16 counted, the dump's name, the user's and the computer's names replaced and nowhere in the text, every line
-# ending with CR LF. The prefix's logs are wine's (likely without the event log): the lines saying so are not checked.
+# ending with CR LF. Then --around: the dump's own UTC day keeps the dump, another day leaves it out, both said in the
+# head; a date that does not exist ends with 1, the usage and no result file. The prefix's logs are wine's (likely without the event log): the lines saying so are not checked.
 # Usage: test/event_report_test.sh <build dir> <run dir> (new and empty); prints ok/FAIL per check and PASSED or
 # FAILED; exit code 0 only when all passed.
 set -euo pipefail
@@ -107,6 +108,37 @@ for result in "${results[@]}"; do
   all_crlf() { ! grep -qv $'\r$' "$result"; }
   expect "every line ends with CR LF" all_crlf
 done
+
+# --around: the dump's own UTC day keeps it, another day leaves it out; a word not understood ends with 1 and the usage
+dump_day=$(date -u -r "$dump_dir/EliteDangerous64.exe.4242.dmp" +%F)
+for asked in "$dump_day" 2001-01-01; do
+  mkdir "$RUN/around-$asked"
+  cp "$BUILD/event_report.exe" "$RUN/around-$asked/"
+  rc=0
+  wine_common_run "$RUN/around-$asked" "$RUN/console-around-$asked.txt" -- event_report.exe --around "$asked" \
+    --minutes 30 || rc=$?
+  check "$rc" "event_report.exe --around $asked ends with 0 (exit code $rc)"
+  shopt -s nullglob
+  around=("$RUN/around-$asked"/event_report-*.txt)
+  shopt -u nullglob
+  ((${#around[@]} == 1)) || around=(/dev/null)
+  expect "--around $asked: the head says the time asked for" \
+    grep -qF -- "only the times asked for (UTC): $asked (the whole day);" "${around[0]}"
+  if [[ $asked == "$dump_day" ]]; then
+    expect "--around the dump's day: the dump shown" grep -qF 'EliteDangerous64.exe.4242.dmp' "${around[0]}"
+  else
+    expect "--around another day: the dump left out" bash -c '! grep -qF EliteDangerous64.exe.4242.dmp "$1"' _ \
+      "${around[0]}"
+  fi
+done
+mkdir "$RUN/wrong"
+cp "$BUILD/event_report.exe" "$RUN/wrong/"
+rc=0
+wine_common_run "$RUN/wrong" "$RUN/console-wrong.txt" -- event_report.exe --around 2026-02-30 || rc=$?
+check "$((rc == 1 ? 0 : 1))" "--around 2026-02-30 ends with 1 (exit code $rc)"
+expect "--around 2026-02-30: the usage said, no result file" bash -c \
+  'grep -qF "usage: event_report.exe" "$1" && ! ls "$2"/event_report-*.txt > /dev/null 2>&1' _ \
+  "$RUN/console-wrong.txt" "$RUN/wrong"
 WINEDEBUG=-all timeout -k 10 60 wineserver -k > /dev/null 2>&1 || true
 
 verdict=$([[ $failures -eq 0 ]] && echo PASSED || echo FAILED)

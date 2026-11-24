@@ -33,6 +33,11 @@ namespace event_report
   inline constexpr std::size_t token_least{4};
   /// 100 ns intervals (a FILETIME's unit) in the period looked at
   inline constexpr std::uint64_t period_filetime{std::uint64_t(days) * 24 * 60 * 60 * 10'000'000};
+  /// --around's minutes either side of a time, unless --minutes sets them; at most
+  inline constexpr int around_minutes{60};
+  inline constexpr int around_minutes_most{24 * 60};
+  /// --around given at most this many times
+  inline constexpr std::size_t around_most{16};
 
   /// case-insensitive equality of UTF-8 texts of the same length
   using fold_equal_t = bool (*)(std::string_view, std::string_view);
@@ -230,9 +235,28 @@ namespace event_report
     std::string failure;   ///< why it could not be read; empty when it was
     };
 
+  ///\brief a period asked for by --around, in seconds since 1970-01-01 UTC, both ends in it
+  struct window_t
+    {
+    std::int64_t from{};
+    std::int64_t to{};
+    std::string text;  ///< as the report says it: "2026-11-19 (the whole day)", "2026-11-19 16:06 +-60 min"
+    };
+
+  ///\brief --around's value, in UTC: "2026-11-19" (that whole day) or "2026-11-19T16:06" / "2026-11-19 16:06"
+  /// (`minutes` either side); nothing for anything else, for a date or time that does not exist and for `minutes`
+  /// outside 1..around_minutes_most
+  [[nodiscard]]
+  auto parse_around(std::string_view text, int minutes) -> std::optional<window_t>;
+
+  ///\brief whether `t` lies in one of `windows`
+  [[nodiscard]]
+  auto in_windows(local_time_t const & t, std::span<window_t const> windows) noexcept -> bool;
+
   struct input_t
     {
     local_time_t now;
+    std::vector<window_t> around;  ///< the periods asked for; empty = the whole period looked at
     std::string windows_version;  ///< "10.0.26100"
     std::vector<source_t> sources;
     std::vector<record_t> records;  ///< any order: the report sorts them
@@ -242,6 +266,9 @@ namespace event_report
     std::vector<std::string> notes;    ///< "the user name is too short to look for: check it yourself" (the same)
     std::string windows_dir;           ///< ends with '\'; for sorting only
     };
+
+  ///\brief `in`'s log entries, saved reports and dumps outside `in.around` taken away; nothing taken when it is empty
+  auto keep_around(input_t & in) -> void;
 
   ///\brief `in`'s values from Windows (the logs' values and providers, the saved reports' fields, the dumps' names,
   /// the Windows folder, cleaned alike so the loaded files sort the same) cleaned by clean(); the count of

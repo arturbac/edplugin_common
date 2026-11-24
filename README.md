@@ -239,12 +239,16 @@ License: MIT (see `LICENSE`).
   domain names, e-mail addresses and SIDs (`S-1-5-21-`, `S-1-12-1-`) are replaced; control characters and the marks
   that turn the direction of text escaped. The text goes to a new `event_report-<date>-<time>.txt` beside it (`-2`
   and on for another run in the same second; never one replaced) and to the console; a player's instructions in
-  `README.txt` there. `wevtapi.dll` is delay-loaded, after `SetDefaultDllDirectories` (System32 only). The part
-  without Windows (`report.h`, `report.cc`) is checked natively (`test/native`) and under wine with Windows'
+  `README.txt` there. From a command prompt, `--around <UTC date or time>` (`2026-11-19` the whole day,
+  `2026-11-19T16:06` or with a space: `--minutes` either side, 60 unless given, 1..1440; at most 16) keeps only the
+  log entries, saved reports and dumps of those times (`keep_around`, `report.h`), said in the head and in an empty
+  section; a word not understood ends with 1 and the usage, before anything is read. `wevtapi.dll` is delay-loaded,
+  after `SetDefaultDllDirectories` (System32 only). The part without Windows (`report.h`, `report.cc`) is checked natively (`test/native`) and under wine with Windows'
   comparison of names (`event_report_test.exe`), with a whole report compared byte for byte (`report_golden.h`);
   `event_report_test.exe` checks the result file's names too (`result_file.cc`: three runs in one second);
   `test/event_report_test.sh` runs the program twice under wine in a prefix of its own with saved reports (the user's
-  and the machine's, one of another kind, one not UTF-16) and a dump put there and checks both its results whole. Built at the
+  and the machine's, one of another kind, one not UTF-16) and a dump put there and checks both its results whole,
+  then `--around` with the dump's day and another, and a date that does not exist. Built at the
   top level with `EDPLUGIN_COMMON_EVENT_REPORT` (ON by default; its test with
   `EDPLUGIN_COMMON_TESTS` too); `tools/event_report/package.sh <build directory> <output directory>` makes the zip a
   player gets, as context_probe's.

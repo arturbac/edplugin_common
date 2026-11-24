@@ -4,6 +4,8 @@
 // crashed) and the crash dump folders (names, sizes and dates only), over the last 30 days. Only the fields report.h
 // keeps reach the text; user and computer names, e-mail addresses and SIDs are replaced, control characters escaped.
 // The text goes to event_report-<date>-<time>.txt beside the exe (a file of its own for each run) and to the console.
+// Run from a command prompt with --around <UTC date or time> (and --minutes <n>), it shows only the entries of those
+// times, for a helper who knows when a game session ended.
 // Nothing is sent anywhere; no administrator rights. wevtapi.dll is loaded late (CMakeLists.txt: /DELAYLOAD), after
 // SetDefaultDllDirectories has limited the search to System32: not a wevtapi.dll put beside the exe (Downloads).
 #include "fold.h"
@@ -512,10 +514,85 @@ namespace
     L"*[System[(Level=1 or Level=2 or Level=3) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]"};
   static_assert(30ull * 24 * 60 * 60 * 1000 == 2592000000ull and days == 30, "the queries' period is days");
 
+  constexpr char usage[]{
+    "usage: event_report.exe [--around <UTC date or time>]... [--minutes <n>]\n"
+    "  --around 2026-11-19          only that day (UTC)\n"
+    "  --around 2026-11-19T16:06    only around that time (UTC), 60 minutes either side unless --minutes says\n"
+    "  --minutes <1..1440>          the minutes either side of each --around time\n"
+    "  at most 16 --around; without one, the last 30 days as always\n"};
+
+  ///\brief the periods asked for on the command line; nothing (and the reason printed) when it cannot be read
+  [[nodiscard]]
+  auto arguments(int argc, char ** argv) -> std::optional<std::vector<window_t>>
+    {
+    std::vector<std::string_view> times;
+    int minutes{around_minutes};
+    for(int i{1}; i < argc; ++i)
+      {
+      std::string_view const a{argv[i]};
+      if((a == "--around" or a == "--minutes") and i + 1 < argc)
+        {
+        std::string_view const value{argv[++i]};
+        if(a == "--around")
+          times.push_back(value);
+        else
+          {
+          std::optional<int> n;
+          if(not value.empty() and value.size() <= 4
+             and value.find_first_not_of("0123456789") == std::string_view::npos)
+            n = std::stoi(std::string{value});
+          if(not n or *n < 1 or *n > around_minutes_most)
+            {
+            std::printf("event_report 1: --minutes takes a number from 1 to %d\n%s", around_minutes_most, usage);
+            return std::nullopt;
+            }
+          minutes = *n;
+          }
+        }
+      else
+        {
+        std::printf("event_report 1: not understood: %s\n%s", ascii(a).c_str(), usage);
+        return std::nullopt;
+        }
+      }
+    if(times.size() > around_most)
+      {
+      std::printf("event_report 1: at most %zu --around\n%s", around_most, usage);
+      return std::nullopt;
+      }
+    std::vector<window_t> windows;
+    for(std::string_view const t: times)
+      {
+      std::optional<window_t> w{parse_around(t, minutes)};
+      if(not w)
+        {
+        std::printf("event_report 1: --around takes 2026-11-19 or 2026-11-19T16:06 (UTC), not %s\n%s",
+                    ascii(t).c_str(), usage);
+        return std::nullopt;
+        }
+      windows.push_back(std::move(*w));
+      }
+    return windows;
+    }
   }  // namespace
 
-auto main() -> int
+auto main(int argc, char ** argv) -> int
   {
+  std::optional<std::vector<window_t>> around;
+  try
+    {
+    around = arguments(argc, argv);
+    }
+  catch(...)
+    {
+    std::printf("event_report 1: the command line could not be read (out of memory or the like)\n");
+    }
+  if(not around)
+    {
+    std::printf("press Enter to close\n");
+    (void)std::getchar();
+    return 1;
+    }
   // every load from System32 only, wevtapi.dll's (loaded late) too; without it the program does not go on
   if(not SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32))
     {
@@ -530,6 +607,7 @@ auto main() -> int
   std::uint64_t const since{filetime(began) - period_filetime};
   input_t in;
   in.now = local(filetime(began));
+  in.around = std::move(*around);
   std::string text;
   try
     {
@@ -573,6 +651,7 @@ auto main() -> int
                  since, in);
     if(not user.empty())
       read_dumps(user + L"\\CrashDumps", "Windows' crash dump folder", true, since, in);
+    keep_around(in);
     std::vector<token_t> const names{tokens(in)};
     text = report(in, names, equal_windows);
     }
@@ -581,6 +660,7 @@ auto main() -> int
     // what was read before it, cleaned as always; nothing when even that fails
     try
       {
+      keep_around(in);
       std::vector<token_t> const names{tokens(in)};
       text = report(in, names, equal_windows)
            + "\nstopped: an exception (out of memory or the like); the report above holds what was read before it\n";

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- event_report: `--around <UTC date or time>` (`2026-11-19` the whole day, `2026-11-19T16:06` with `--minutes` either
+  side, 60 unless given; up to 16) shows only the entries, saved reports and dumps of those times, for a helper who
+  knows when a session ended (before, only the newest 20 of each kind over 30 days); without it the report is as
+  before. A word not understood ends with 1 and the usage.
 - `memory/pass_modules.h` (`src/pass_modules.cc`): the list of modules passed over when a plugin tells who called it
   (`default_pass_modules`, `bdhkm64.dll`), its reading (`next_pass_name`) and the comparison of a dll's name with it
   (`passed_over`), as edworld's `creator_pass` reads and compares today, for edworld and edloader alike.

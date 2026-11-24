@@ -7,6 +7,8 @@
 #include "report.h"
 #include "report_golden.h"
 
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -398,6 +400,71 @@ namespace event_report
     check(words_text.find("the user's ReportArchive") != std::string::npos
             and words_text.find("the display driver <user> stopped") != std::string::npos,
           "report: the program's words left as they are, the values cleaned");
+
+    // --around: a whole day and a time with minutes either side, in UTC
+    std::optional<window_t> const day{parse_around("2026-11-19", around_minutes)};
+    check(day and day->from == 1795046400 and day->to == 1795046400 + 86399
+            and day->text == "2026-11-19 (the whole day)",
+          "parse_around: a whole day, UTC");
+    std::optional<window_t> const at{parse_around("2026-11-19T16:06", around_minutes)};
+    std::optional<window_t> const spaced{parse_around("2026-11-19 16:06", 15)};
+    check(at and at->from == 1795104360 - 3600 and at->to == 1795104360 + 3600
+            and at->text == "2026-11-19 16:06 +-60 min" and spaced and spaced->from == 1795104360 - 900
+            and spaced->text == "2026-11-19 16:06 +-15 min",
+          "parse_around: a time with T or a space, the minutes either side");
+    check(parse_around("2024-02-29", 1) and not parse_around("2026-02-29", 1) and not parse_around("2026-04-31", 1)
+            and not parse_around("2026-13-01", 1) and not parse_around("2026-00-10", 1),
+          "parse_around: only dates that exist");
+    check(not parse_around("2026-11-19T24:00", 1) and not parse_around("2026-11-19T16:60", 1)
+            and not parse_around("2026-11-19 16:6", 1) and not parse_around("2026-11-19X16:06", 1)
+            and not parse_around("2026/11/19", 1) and not parse_around("", 1) and not parse_around("2026-11-1a", 1),
+          "parse_around: only the two forms");
+    check(not parse_around("2026-11-19", 0) and not parse_around("2026-11-19", around_minutes_most + 1)
+            and parse_around("2026-11-19", around_minutes_most),
+          "parse_around: minutes in 1..around_minutes_most");
+    std::vector<window_t> const asked{*day, *at};
+    check(in_windows({2026, 11, 20, 0, 30, 0, 60}, std::span{asked.data(), 1})
+            and not in_windows({2026, 11, 20, 1, 0, 0, 60}, std::span{asked.data(), 1}),
+          "in_windows: a local time after midnight is the UTC day before");
+    check(in_windows({2026, 11, 19, 17, 6, 0, 0}, std::span{asked.data() + 1, 1})
+            and not in_windows({2026, 11, 19, 17, 6, 1, 0}, std::span{asked.data() + 1, 1})
+            and not in_windows({2026, 11, 19, 15, 5, 59, 0}, std::span{asked.data() + 1, 1}),
+          "in_windows: both ends in, a second past out");
+    check(in_windows({2026, 11, 19, 15, 6, 0, 0}, std::span{asked.data() + 1, 1})
+            and in_windows({2026, 11, 19, 0, 0, 0, 0}, std::span{asked.data(), 1})
+            and not in_windows({2026, 11, 18, 23, 59, 59, 0}, std::span{asked.data(), 1}),
+          "in_windows: the first second of a window in, the one before out");
+    check(in_windows({2026, 11, 19, 16, 30, 0, 0}, asked) and in_windows({2026, 11, 19, 3, 0, 0, 0}, asked)
+            and not in_windows({2026, 11, 20, 3, 0, 0, 0}, asked),
+          "in_windows: any of several windows");
+    input_t around_in;
+    around_in.now = {2026, 11, 24, 9, 5, 7, 60};
+    around_in.records = {record(kind_e::display_reset, "Display", 4101, {"a"}, 18),
+                         record(kind_e::display_reset, "Display", 4101, {"b"}, 19),
+                         record(kind_e::restart, "Microsoft-Windows-Kernel-Power", 41, {}, 20)};
+    around_in.dumps = {{"EliteDangerous64.dmp", 1, {2026, 11, 19, 12, 0, 0, 60}},
+                       {"EliteDangerous64.dmp", 2, {2026, 11, 18, 12, 0, 0, 60}}};
+    around_in.reports.resize(2);
+    around_in.reports[0].report_id = "in";
+    around_in.reports[0].time = {2026, 11, 19, 12, 0, 0, 60};
+    around_in.reports[1].report_id = "out";
+    around_in.reports[1].time = {2026, 11, 20, 12, 0, 0, 60};
+    input_t all{around_in};
+    keep_around(all);
+    check(all.records.size() == 3 and all.dumps.size() == 2 and all.reports.size() == 2,
+          "keep_around: nothing taken without --around");
+    around_in.around = {*day};
+    keep_around(around_in);
+    check(around_in.records.size() == 1 and around_in.records[0].values == std::vector<std::string>{"b"}
+            and around_in.dumps.size() == 1 and around_in.dumps[0].bytes == 1u and around_in.reports.size() == 1
+            and around_in.reports[0].report_id == "in",
+          "keep_around: only the entries, saved reports and dumps of the times asked for");
+    std::string const around_text{report(around_in, tokens, equal)};
+    check(around_text.find("Period: the last 30 days, only the times asked for (UTC): 2026-11-19 (the whole day);\n")
+              != std::string::npos
+            and around_text.find("  none in the times asked for\n") != std::string::npos
+            and around_text.find("none in the last") == std::string::npos,
+          "report: the times asked for said in the head and in an empty section");
 
     // the whole report, byte for byte
     check(report(golden_input(), golden_tokens, equal) == golden_text, "report: golden_input() is golden_text");

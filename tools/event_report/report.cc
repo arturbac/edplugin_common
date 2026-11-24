@@ -225,15 +225,15 @@ namespace event_report
       return found;
       }
 
-    ///\brief a section's title, "(newest 20 of 31 shown)" when more
-    auto add_title(std::string & out, std::string_view title, std::size_t count) -> void
+    ///\brief a section's title, "(newest 20 of 31 shown)" when more; `around`: only the times asked for are looked at
+    auto add_title(std::string & out, std::string_view title, std::size_t count, bool around) -> void
       {
       out += "\n" + std::string{title};
       if(count > shown)
         out += format(" (newest %zu of %zu shown)", shown, count);
       out += "\n";
       if(count == 0)
-        out += format("  none in the last %d days\n", days);
+        out += around ? std::string{"  none in the times asked for\n"} : format("  none in the last %d days\n", days);
       }
 
     [[nodiscard]]
@@ -296,6 +296,71 @@ namespace event_report
   auto later(local_time_t const & a, local_time_t const & b) noexcept -> bool
     {
     return utc_seconds(a) > utc_seconds(b);
+    }
+
+  namespace
+    {
+    ///\brief the number of exactly `digits` decimal digits at `at` in `text`; nothing for anything else
+    [[nodiscard]]
+    constexpr auto digits_at(std::string_view text, std::size_t at, std::size_t digits) noexcept -> std::optional<int>
+      {
+      if(text.size() < at + digits)
+        return std::nullopt;
+      int n{};
+      for(char const c: text.substr(at, digits))
+        {
+        if(c < '0' or c > '9')
+          return std::nullopt;
+        n = n * 10 + (c - '0');
+        }
+      return n;
+      }
+
+    [[nodiscard]]
+    constexpr auto days_in_month(int y, int m) noexcept -> int
+      {
+      constexpr int days_of[]{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+      bool const leap{y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)};
+      return m == 2 and leap ? 29 : days_of[m - 1];
+      }
+
+    static_assert(days_in_month(2024, 2) == 29 and days_in_month(2100, 2) == 28 and days_in_month(2000, 2) == 29
+                  and days_in_month(2026, 11) == 30);
+    }  // namespace
+
+  auto parse_around(std::string_view text, int minutes) -> std::optional<window_t>
+    {
+    if(minutes < 1 or minutes > around_minutes_most or (text.size() != 10 and text.size() != 16))
+      return std::nullopt;
+    std::optional<int> const y{digits_at(text, 0, 4)}, m{digits_at(text, 5, 2)}, d{digits_at(text, 8, 2)};
+    if(not y or not m or not d or text[4] != '-' or text[7] != '-' or *m < 1 or *m > 12 or *d < 1
+       or *d > days_in_month(*y, *m))
+      return std::nullopt;
+    std::int64_t const day{days_from_civil(*y, *m, *d) * 86400};
+    if(text.size() == 10)
+      return window_t{day, day + 86399, format("%04d-%02d-%02d (the whole day)", *y, *m, *d)};
+    std::optional<int> const h{digits_at(text, 11, 2)}, mi{digits_at(text, 14, 2)};
+    if((text[10] != 'T' and text[10] != ' ') or text[13] != ':' or not h or not mi or *h > 23 or *mi > 59)
+      return std::nullopt;
+    std::int64_t const at{day + std::int64_t(*h) * 3600 + std::int64_t(*mi) * 60};
+    std::int64_t const side{std::int64_t(minutes) * 60};
+    return window_t{at - side, at + side, format("%04d-%02d-%02d %02d:%02d +-%d min", *y, *m, *d, *h, *mi, minutes)};
+    }
+
+  auto in_windows(local_time_t const & t, std::span<window_t const> windows) noexcept -> bool
+    {
+    std::int64_t const at{utc_seconds(t)};
+    return std::ranges::any_of(windows, [at](window_t const & w) { return w.from <= at and at <= w.to; });
+    }
+
+  auto keep_around(input_t & in) -> void
+    {
+    if(in.around.empty())
+      return;
+    auto const outside = [&in](auto const & item) { return not in_windows(item.time, in.around); };
+    std::erase_if(in.records, outside);
+    std::erase_if(in.reports, outside);
+    std::erase_if(in.dumps, outside);
     }
 
   auto offset_text(int minutes) -> std::string
@@ -764,7 +829,7 @@ namespace event_report
 
     int section{};
     auto const title = [&](char const * text, std::size_t n)
-      { add_title(out, format("%d. %s", ++section, text), n); };
+      { add_title(out, format("%d. %s", ++section, text), n, not in.around.empty()); };
 
     title("RESTARTS WITHOUT A CLEAN SHUTDOWN AND BLUE SCREENS", restarts.size());
     for(std::size_t i{}; i != std::min(restarts.size(), shown); ++i)
@@ -914,7 +979,15 @@ namespace event_report
            "screens\n";
     out += "  - Windows Error Reporting's saved reports of the game: the files loaded into the game when it crashed\n";
     out += "  - the crash dump folders: only the names, sizes and dates of the files\n";
-    out += format("  Period: the last %d days; the newest %zu entries of each kind are shown.\n", days, shown);
+    if(in.around.empty())
+      out += format("  Period: the last %d days; the newest %zu entries of each kind are shown.\n", days, shown);
+    else
+      {
+      out += format("  Period: the last %d days, only the times asked for (UTC):", days);
+      for(std::size_t i{}; i != in.around.size(); ++i)
+        out += (i == 0 ? " " : "; ") + in.around[i].text;
+      out += format(";\n  the newest %zu entries of each kind in them are shown.\n", shown);
+      }
     out += "What it writes: this text only, to a file of its own beside the program. It holds the Windows\n";
     out += "version, the game's and files' versions, graphics driver names, error codes and times, Windows'\n";
     out += "report ids and names of loaded files - no paths. User, computer and domain names, e-mail addresses\n";

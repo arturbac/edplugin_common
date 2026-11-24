@@ -40,4 +40,13 @@ How to run:
 5. Open the event_report-<date>-<time>.txt it named (the newest one, when there are more), read it, and send it back
    if you are fine with what it says.
 
+For someone helping you, who knows when a game session ended: from a command prompt in the program's folder,
+  event_report.exe --around 2026-11-19
+shows only that day (UTC), and
+  event_report.exe --around 2026-11-19T16:06 --minutes 30
+only 30 minutes either side of that time (UTC; 60 without --minutes). In PowerShell start it as .\event_report.exe;
+a time with a space instead of T goes in quotes ("2026-11-19 16:06"). --around may be given up to 16 times; the
+newest 20 entries of each kind within those times are shown, still from the last 30 days only. The times asked for
+are UTC, the times in the report your computer's own (the head says its offset).
+
 SHA256SUMS.txt lists the files' checksums; LICENSE is the library's license (MIT).
