@@ -1,9 +1,10 @@
-// The checks of the modules paths, file, memory, shader and dxgi, in the directory `modules` under the current one
-// (tools/test.sh runs the program in a new directory, with test_exports.dll beside it).
+// The checks of the modules paths, file, memory (with pass_modules), shader and dxgi, in the directory `modules` under
+// the current one (tools/test.sh runs the program in a new directory, with test_exports.dll beside it).
 #include <edplugin_common/dxgi/format.h>
 #include <edplugin_common/file/file.h>
 #include <edplugin_common/log/log.h>
 #include <edplugin_common/memory/memory.h>
+#include <edplugin_common/memory/pass_modules.h>
 #include <edplugin_common/memory/pe.h>
 #include <edplugin_common/paths/paths.h>
 #include <edplugin_common/shader/names_of.h>
@@ -172,6 +173,7 @@ namespace
 
   auto names_checks(std::uint8_t * pages, std::size_t page) -> void;
   auto exports_checks(std::uint8_t * pages, std::size_t page) -> void;
+  auto pass_modules_checks() -> void;
 
   auto memories() -> void
     {
@@ -212,6 +214,20 @@ namespace
     names_checks(pages, page);
     exports_checks(pages, page);
     check(VirtualFree(pages, 0, MEM_RELEASE) != 0, "memory: the test's pages freed");
+    pass_modules_checks();
+    }
+
+  ///\brief memory/pass_modules.h's comparison of a dll's name with a list (Windows' ordinal one, without case)
+  auto pass_modules_checks() -> void
+    {
+    using edplugin_common::passed_over;
+    check(passed_over(L"BDHKM64.DLL"sv, edplugin_common::default_pass_modules), "passed_over: the default list, case aside");
+    check(passed_over(L"x.dll"sv, L" a.dll , x.dll "sv) and not passed_over(L"x.dl"sv, L"x.dll"sv),
+          "passed_over: a name of the list trimmed, a shorter one not");
+    check(not passed_over(L"y.dll"sv, L"x.dll, a.dll"sv), "passed_over: a name of the same length but another not");
+    check(not passed_over(L""sv, L"a.dll,,"sv) and not passed_over(L"a.dll"sv, L""sv),
+          "passed_over: an empty name and an empty list match none");
+    check(passed_over(L"\u00c9.dll"sv, L"\u00e9.dll"sv), "passed_over: case aside beyond ASCII (E and e with an acute)");
     }
 
   auto names_checks(std::uint8_t * pages, std::size_t page) -> void

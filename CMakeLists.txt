@@ -63,15 +63,16 @@ endif()
 # edplugin_common_proxy_exports
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
-# a STATIC library (the modules' code: log, paths, file, memory, pe, shader names, settings_doc, ini, guard) with the
-# headers, and what every plugin's code compiles with (PUBLIC); its MSVC runtime is the plugin's, set before
-# add_subdirectory
+# a STATIC library (the modules' code: log, paths, file, memory, pass_modules, pe, shader names, settings_doc, ini,
+# guard) with the headers, and what every plugin's code compiles with (PUBLIC); its MSVC runtime is the plugin's, set
+# before add_subdirectory
 add_library(
   edplugin_common STATIC
   src/log.cc
   src/paths.cc
   src/file.cc
   src/memory.cc
+  src/pass_modules.cc
   src/pe.cc
   src/names_of.cc
   src/settings_doc.cc
@@ -136,6 +137,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_paths.cc
       test/alone_file.cc
       test/alone_memory.cc
+      test/alone_pass_modules.cc
       test/alone_shader.cc
       test/alone_names_of.cc
       test/alone_dxgi.cc

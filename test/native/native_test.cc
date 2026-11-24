@@ -1,8 +1,9 @@
 // The checks of edplugin_common's headers without a Windows header, built natively with sanitizers
-// (tools/test-native.sh): memory/pe_range.h's ranges, shader/shader.h's hashes and 3DMigoto's name, also from several
-// threads at once, the module ini without Windows (ini_native.cc), tools/context_probe's decoding of jumps (every form
-// cut at every length: no read past the bytes given) and its text of slots, and tools/event_report's part without
-// Windows (report_checks.h, with an ASCII-only comparison).
+// (tools/test-native.sh): memory/pe_range.h's ranges, memory/pass_modules.h's reading of a list, shader/shader.h's
+// hashes and 3DMigoto's name, also from several threads at once, the module ini without Windows (ini_native.cc),
+// tools/context_probe's decoding of jumps (every form cut at every length: no read past the bytes given) and its text
+// of slots, and tools/event_report's part without Windows (report_checks.h, with an ASCII-only comparison).
+#include <edplugin_common/memory/pass_modules.h>
 #include <edplugin_common/memory/pe_range.h>
 #include <edplugin_common/shader/shader.h>
 
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -138,11 +140,36 @@ namespace
     check(lfanew_ok(0xF8, 264, 0x1000) and not lfanew_ok(negative, 264, size) and not lfanew_ok(4097, 264, size),
           "lfanew_ok: in [64, 4096] and the headers inside");
     }
+
+  ///\brief the names of a list, as they come; an empty one stands for itself
+  constexpr auto pass_names(std::wstring_view list) -> std::vector<std::wstring_view>
+    {
+    std::vector<std::wstring_view> names;
+    while(not list.empty())
+      names.push_back(edplugin_common::next_pass_name(list));
+    return names;
+    }
+
+  static_assert(pass_names(edplugin_common::default_pass_modules) == std::vector{L"bdhkm64.dll"sv});
+  static_assert(pass_names(L" a.dll ,\tb.dll\t") == std::vector{L"a.dll"sv, L"b.dll"sv});
+  static_assert(pass_names(L"a.dll,,b.dll,") == std::vector{L"a.dll"sv, L""sv, L"b.dll"sv});
+  static_assert(pass_names(L"").empty());
+
+  ///\brief memory/pass_modules.h's reading of a list, from a text the compiler does not know
+  auto pass_module_names() -> void
+    {
+    std::wstring const text{L"  bdhkm64.dll, ,x.dll  ,"};
+    auto const names{pass_names(text)};
+    check(names == std::vector{L"bdhkm64.dll"sv, L""sv, L"x.dll"sv}, "next_pass_name: names trimmed, an empty one kept");
+    std::wstring_view rest{L"one"};
+    check(edplugin_common::next_pass_name(rest) == L"one"sv and rest.empty(), "next_pass_name: the last name leaves none");
+    }
   }  // namespace
 
 auto main() -> int
   {
   pe_ranges();
+  pass_module_names();
   shader_names();
   shader_names_threads();
   context_probe_jumps();

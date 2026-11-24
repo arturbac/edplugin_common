@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `memory/pass_modules.h` (`src/pass_modules.cc`): the list of modules passed over when a plugin tells who called it
+  (`default_pass_modules`, `bdhkm64.dll`), its reading (`next_pass_name`) and the comparison of a dll's name with it
+  (`passed_over`), as edworld's `creator_pass` reads and compares today, for edworld and edloader alike.
 - The module `ini` (`include/edplugin_common/ini/`, `src/ini.cc`): a plugin's ini by its one table of settings,
   taken from edupscale, edwide_screen and edworld so the three read, write and watch it alike. `ini_text.h` (a line,
   the comment by the value's kind, the readers, byte order marks, line ends, UTF-8 and UTF-16), `ini_table.h` (the

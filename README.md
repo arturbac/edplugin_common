@@ -73,6 +73,12 @@ License: MIT (see `LICENSE`).
   no guard page, the whole range in one region), `executable(p)`, `module_of(p)` (the reference count unchanged),
   `section_of(module, p, name)` (read under the guard: a module unloaded meanwhile gives `-`), and `first_export_with_prefix(module, prefix, name, fault)`: the first export by such
   a name, read through `pe_image` (below) under a fault handler (none, found, malformed, or a fault with its code).
+- `include/edplugin_common/memory/pass_modules.h` (comparison in `src/pass_modules.cc`) - the modules passed over when a
+  plugin tells who called it: a program that puts itself in the game's own calls (an antivirus's hooks), so a call
+  seems to come from it. `default_pass_modules` is `bdhkm64.dll` (Bitdefender's); `next_pass_name(rest)` reads a list
+  of dll file names by commas, a name at a time without the spaces and tabs around it (no Windows header, checked
+  natively); `passed_over(file, list)`: whether a dll's file name is one of the list's, without regard to case
+  (Windows' ordinal comparison), an empty name matching none.
 - `include/edplugin_common/memory/pe.h` (code in `src/pe.cc`) - a loaded module's PE image read as data from outside
   the plugin. `pe_image(module[, loader_size])` gives a `pe_image_t`, or none when the headers are not those of a
   PE32+ image within its memory (an MZ header, `e_lfanew` in [64, 4096], the NT signature and magic, an optional
@@ -379,8 +385,8 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   with its runtime (MSVC's does not link without AddressSanitizer's), ThreadSanitizer (clang-cl has none for
   Windows).
 - `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`:
-  `memory/pe_range.h`, `shader/shader.h`, `ini/ini_text.h`, `ini/ini_table.h` and `ini/live.h` - the latter with
-  a thread that keeps a reference to the start-only fields through 200 publications -, `tools/context_probe/jump.h`
+  `memory/pe_range.h`, `memory/pass_modules.h`'s `next_pass_name`, `shader/shader.h`, `ini/ini_text.h`,
+  `ini/ini_table.h` and `ini/live.h` - the latter with a thread that keeps a reference to the start-only fields through 200 publications -, `tools/context_probe/jump.h`
   and `slots.h`)
   built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
   `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
