@@ -71,8 +71,8 @@ namespace edplugin_common
       {
       std::string out;
       ((out += "# "sv) += doc.title) += "\n\n"sv;
-      ((out += "<!-- Made by "sv) += doc.made_by) += "; tools/test.sh checks\n"
-                                                     "     it is up to date. Change the table, not this file. -->\n\n"sv;
+      ((out += "<!-- Made by "sv) += doc.made_by)
+        += "; tools/test.sh checks\n     it is up to date. Change the table, not this file. -->\n\n"sv;
       out += doc.intro;
       for(std::size_t group{}; group != doc.groups.size(); ++group)
         {
