@@ -254,6 +254,25 @@ namespace event_report
       std::string_view const type{rest.substr(0, std::min(rest.find_first_of(": \t\r\n"), rest.size()))};
       return type.empty() ? std::string{"(its type not found in the entry)"} : cut(type);
       }
+
+    ///\brief LiveKernelEvent entries, newest first, of graphics codes or of the others; one of the same code within 2 s
+    /// after a newer one kept is left out (Windows notes a report twice, a second apart)
+    [[nodiscard]]
+    auto kernel_reports(input_t const & in, bool graphics) -> std::vector<record_t const *>
+      {
+      std::vector<record_t const *> found;
+      for(record_t const * r: of_kind(in, {kind_e::wer_kernel}))
+        {
+        std::optional<std::uint64_t> const code{hex_value(value(*r, 5))};
+        if((code and graphics_kernel_code(*code)) != graphics)
+          continue;
+        if(not found.empty() and utc_seconds(found.back()->time) - utc_seconds(r->time) <= 2
+           and value(*found.back(), 5) == value(*r, 5))
+          continue;
+        found.push_back(r);
+        }
+      return found;
+      }
     }  // namespace
 
   auto time_text(local_time_t const & t) -> std::string
@@ -381,6 +400,9 @@ namespace event_report
       case 0x133: return "DPC_WATCHDOG_VIOLATION";
       case 0x141: return "VIDEO_ENGINE_TIMEOUT_DETECTED: a graphics engine stopped responding";
       case 0x193: return "VIDEO_DXGKRNL_LIVEDUMP: Windows saved the graphics kernel's state";
+      case 0x144: return "BUGCODE_USB3_DRIVER: a USB 3 driver";
+      case 0x1B0: return "VIDEO_MINIPORT_FAILED_LIVEDUMP: the graphics driver failed";
+      case 0x1B8: return "VIDEO_MINIPORT_BLACK_SCREEN_LIVEDUMP: a black screen";
       default: return {};
       }
     }
@@ -539,6 +561,11 @@ namespace event_report
     return starts_with_fold(name, "EliteDangerous") or starts_with_fold(name, "EDLaunch");
     }
 
+  auto graphics_kernel_code(std::uint64_t code) noexcept -> bool
+    {
+    return code == 0x117 or code == 0x141 or code == 0x193 or code == 0x1B0 or code == 0x1B8;
+    }
+
   auto intel_graphics(std::string_view provider) noexcept -> bool
     {
     return starts_with_fold(provider, "igfx");
@@ -673,7 +700,11 @@ namespace event_report
     auto const hangs{of_kind(in, {kind_e::game_hang})};
     auto const launcher{of_kind(in, {kind_e::launcher_crash})};
     auto const restarts{of_kind(in, {kind_e::restart, kind_e::blue_screen, kind_e::unexpected_shutdown})};
-    auto const graphics{of_kind(in, {kind_e::display_reset, kind_e::graphics_driver, kind_e::wer_kernel})};
+    auto const kernel_graphics{kernel_reports(in, true)};
+    auto const kernel_other{kernel_reports(in, false)};
+    auto graphics{of_kind(in, {kind_e::display_reset, kind_e::graphics_driver})};
+    graphics.insert(graphics.end(), kernel_graphics.begin(), kernel_graphics.end());
+    std::ranges::stable_sort(graphics, [](record_t const * a, record_t const * b) { return later(a->time, b->time); });
     auto const other{of_kind(in, {kind_e::wer_game})};
     auto const count = [&](kind_e k)
       { return std::ranges::count_if(in.records, [k](record_t const & r) { return r.kind == k; }); };
@@ -686,8 +717,9 @@ namespace event_report
     out += format("  restarts without a clean shutdown: %td   blue screens: %td   unexpected shutdowns: %td\n",
                   count(kind_e::restart), count(kind_e::blue_screen), count(kind_e::unexpected_shutdown));
     out += format("  graphics driver resets: %td   graphics driver errors: %td   graphics hangs Windows reported: "
-                  "%td\n",
-                  count(kind_e::display_reset), count(kind_e::graphics_driver), count(kind_e::wer_kernel));
+                  "%zu\n",
+                  count(kind_e::display_reset), count(kind_e::graphics_driver), kernel_graphics.size());
+    out += format("  other kernel reports of Windows (not graphics): %zu\n", kernel_other.size());
     if(not crashes.empty())
       {
       std::vector<std::pair<std::string, int>> modules;
@@ -773,6 +805,11 @@ namespace event_report
       else
         out += line_start(r) + r.provider + format(" %u: ", r.id) + value(r, 0) + "\n";
       }
+
+    title("OTHER KERNEL REPORTS OF WINDOWS (LiveKernelEvent, not graphics)", kernel_other.size());
+    for(std::size_t i{}; i != std::min(kernel_other.size(), shown); ++i)
+      out += line_start(*kernel_other[i]) + "LiveKernelEvent "
+           + code_text(value(*kernel_other[i], 5), code_e::stop_code_hex) + "\n";
 
     title("OTHER REPORTS OF THE GAME TO WINDOWS (Windows Error Reporting 1001)", other.size());
     for(std::size_t i{}; i != std::min(other.size(), shown); ++i)

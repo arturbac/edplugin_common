@@ -85,12 +85,17 @@ namespace event_report
   [[nodiscard]]
   auto bugcheck_text(std::uint64_t code) noexcept -> std::string_view;
 
+  ///\brief whether a LiveKernelEvent's code is a graphics one (0x117, 0x141, 0x193, 0x1b0, 0x1b8); others (a USB
+  /// driver's 0x144) are shown apart
+  [[nodiscard]]
+  auto graphics_kernel_code(std::uint64_t code) noexcept -> bool;
+
   enum struct kind_e
     {
     game_crash,           ///< Application Error 1000 of the game
     game_hang,            ///< Application Hang 1002 of the game
     launcher_crash,       ///< Application Error 1000 or .NET Runtime 1026 of the launcher
-    wer_kernel,           ///< Windows Error Reporting 1001: LiveKernelEvent (a graphics hang and the like)
+    wer_kernel,           ///< Windows Error Reporting 1001: LiveKernelEvent (graphics_kernel_code() or another)
     wer_game,             ///< Windows Error Reporting 1001 of the game or the launcher, not a crash or a hang
     display_reset,        ///< Display 4101
     graphics_driver,      ///< an error of nvlddmkm, amdkmdag or an igfx* driver

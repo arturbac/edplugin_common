@@ -102,6 +102,14 @@ namespace event_report
     in.records.push_back(
       record(kind_e::graphics_driver, "nvlddmkm", 153, {"\\Device\\Video3", "Error occurred on GPUID: 100"}, 10));
     in.records.push_back(wer_entry(kind_e::wer_kernel, "LiveKernelEvent", "141", "ffffc00f", "0", 9));
+    // Windows notes a report twice, a second apart: counted once; a USB driver's 0x144 (twice too) apart from graphics
+    record_t again{wer_entry(kind_e::wer_kernel, "LiveKernelEvent", "141", "ffffc00f", "0", 9)};
+    again.time = {2026, 11, 9, 11, 59, 59, 60};
+    in.records.push_back(again);
+    record_t usb{wer_entry(kind_e::wer_kernel, "LiveKernelEvent", "144", "3003", "0", 7)};
+    in.records.push_back(usb);
+    usb.time.second = 1;
+    in.records.push_back(usb);
     in.records.push_back(wer_entry(kind_e::wer_game, "BEX64", "EliteDangerous64.exe", "334.925.0.0", "6ada8048", 8));
     wer_t linked;
     linked.event_type = "APPCRASH";
@@ -162,6 +170,8 @@ namespace event_report
     check(not exception_text(0xC0000005).empty() and exception_text(0x12345678).empty(), "exception_text");
     check(not bugcheck_text(0x141).empty() and not bugcheck_text(0).empty() and bugcheck_text(0x5555).empty(),
           "bugcheck_text");
+    check(graphics_kernel_code(0x141) and graphics_kernel_code(0x193) and not graphics_kernel_code(0x144),
+          "graphics_kernel_code");
     check(file_name_of("C:\\a\\b.dll") == "b.dll" and file_name_of("b.dll") == "b.dll" and file_name_of("x/") == "",
           "file_name_of");
 

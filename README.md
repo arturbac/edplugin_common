@@ -186,7 +186,8 @@ License: MIT (see `LICENSE`).
   source.
 - `tools/event_report/` - `event_report.exe`, run by hand on a player's Windows: the game's and its launcher's crashes
   and hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
-  Reporting 1001), graphics driver resets and errors, restarts without a clean shutdown and blue screens (the System
+  Reporting 1001; its LiveKernelEvent of graphics codes with the graphics, others apart, one noted twice within 2 s
+  counted once), graphics driver resets and errors, restarts without a clean shutdown and blue screens (the System
   log queried by provider: Display 4101, nvlddmkm and amdkmdag errors and warnings, Microsoft-Windows-Kernel-Power 41,
   Microsoft-Windows-WER-SystemErrorReporting 1001, EventLog 6008; Intel's igfx* from a second reading of its errors
   and warnings, kept by the prefix), Windows Error Reporting's saved reports of the game (found by AppPath's exe,
