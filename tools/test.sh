@@ -9,14 +9,16 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/wine-common.sh"
 BUILD=$(cd "${1:?build dir}" && pwd)
 SCR=${2:?scratch dir}
-[[ -f $BUILD/edplugin_common_test.exe ]] || { echo "$0: no $BUILD/edplugin_common_test.exe (build first)" >&2; exit 1; }
+for built in edplugin_common_test.exe test_exports.dll; do
+  [[ -f $BUILD/$built ]] || { echo "$0: no $BUILD/$built (build first)" >&2; exit 1; }
+done
 pin_rc=0
 "$HERE/../test/pin_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-pin)" || pin_rc=$?
 exports_rc=0
 "$HERE/../test/proxy_exports_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-proxy-exports)" || exports_rc=$?
 wine_common_prefix EDPLUGIN_COMMON_WINEPREFIX
 RUN=$(wine_common_run_dir "$SCR" edplugin_common-test)
-cp "$BUILD/edplugin_common_test.exe" "$RUN/"
+cp "$BUILD/edplugin_common_test.exe" "$BUILD/test_exports.dll" "$RUN/"
 rc=0
 wine_common_run "$RUN" "$RUN/out.txt" -- edplugin_common_test.exe || rc=$?
 cat "$RUN/out.txt"

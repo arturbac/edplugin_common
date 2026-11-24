@@ -45,6 +45,37 @@ License: MIT (see `LICENSE`).
   enumeration, lock-free); `changed(now)` is true when it differs from the last one, so `if(s.changed(v))
   log_line(...)` logs once per change of state, not once per frame. The first value, given to the constructor, is
   the caller's "unknown".
+- `include/edplugin_common/paths/paths.h` (code in `src/paths.cc`) - `environment(name)` (a value of any length,
+  empty when not set), `module_path(module)` (a long path too; `nullptr` is the exe), `directory_of(path)` and
+  `file_name_of(path)` (around the last `\` or `/`, copies), the names of the variables edloader sets for its plugins
+  (`edloader_config_dir_variable`, `edloader_log_dir_variable`) and `plugin_dir(variable, self)` (the variable's
+  folder, without it the plugin's dll's own), and `game_build_key()`: the game's build as the plugins name folders by
+  it, `<the exe's size, low 32 bits>-<its last write, 16 hex digits>`, told once in the process, empty when the exe
+  cannot be read (a long path too).
+- `include/edplugin_common/file/file.h` (code in `src/file.cc`) - `read_text(path)`: the file whole, empty when there
+  is no such file, no value when it is there but cannot be read (so a caller never takes it for an empty one);
+  `write_time(path)` (0 without the file); `write_whole_file(path, data, bytes)`: made anew, a file not written whole
+  removed, a failure one line in the module's log; `append_to_file(path, data, bytes)`; `map_file_rw(path, bytes,
+  tag)`: a file shared with other processes (made when missing, its directory not; grown to `bytes`), a failure one
+  line `<tag>: cannot open|map|view ...`; `map_file_ro(path, least, most)`: another process's file, none when missing
+  or smaller than `least`, silent. The views of both stay for the process's life.
+- `include/edplugin_common/memory/memory.h` (code in `src/memory.cc`) - `readable(p, bytes)` (committed, read access,
+  no guard page, the whole range in one region), `executable(p)`, `module_of(p)` (the reference count unchanged),
+  `pe_headers(module)` (a loaded module's PE32+ headers, each read checked), `section_of(module, p, name)`, and
+  `first_export_with_prefix(module, prefix, name, fault)`: the first export by such a name, read from the image's
+  export directory with every offset checked against its size, under a fault handler (none, found, malformed, or a
+  fault with its code).
+- `include/edplugin_common/shader/shader.h` - the names of shaders, without a Windows header: `fnv1a64(data, bytes
+  [, h])` (FNV-1a 64 from the plugins' basis 1469598103934665603 - a digit short of FNV's published one, kept since
+  every name made so far uses it; `h` goes on from a hash so far), `fnv_3dmigoto` (3DMigoto's FNV-1 from 0) and
+  `migoto_name_text` (`3dmgt_` and 16 hex digits). `include/edplugin_common/shader/names_of.h` (code in
+  `src/names_of.cc`): `names_of(code, bytes)`, both names under a fault handler, `read` false when the bytes could not
+  be read.
+- `include/edplugin_common/dxgi/format.h` - `is_integer(format)`: a UINT or SINT format.
+- Fault handlers: a `__try` catches a fault only of what it calls (clang-cl without `/EHa` does not catch a fault of an
+  instruction in the `__try` body itself), so the reads under one are in a function of their own (`names_of`,
+  `first_export_with_prefix`), with no object to unwind in the function with the handler, and its filter always
+  handles the fault (`EXCEPTION_EXECUTE_HANDLER`): a fault let through a `noexcept` function ends the process.
 - `cmake/clang-cl-msvc-sdk.cmake` - the toolchain: a cross build for 64-bit Windows on Linux with clang-cl and LLVM's
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
@@ -57,8 +88,8 @@ License: MIT (see `LICENSE`).
 - `cmake/get_cpm.cmake` - CPM, which brings stralgo and small_vectors (pinned to their commits).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
-- The target `edplugin_common::edplugin_common`: a STATIC library (the log's code) with the headers above, compiled as
-  C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+- The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory and shader
+  names) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).

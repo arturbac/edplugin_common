@@ -15,6 +15,15 @@
 - The target is a STATIC library (`src/log.cc`), its settings PUBLIC; the plugin's MSVC runtime is its runtime.
 - `edplugin_common_proxy_exports`: comments are taken out before the list is checked, so `;`, `[`, `]` and bytes
   outside ASCII may stand in them.
+- The modules `paths` (`environment`, `module_path`, `directory_of`, `file_name_of`, `plugin_dir`, edloader's variables'
+  names, `game_build_key`), `file` (`read_text`, `write_time`, `write_whole_file`, `append_to_file`, `map_file_rw`,
+  `map_file_ro`), `memory` (`readable`, `executable`, `module_of`, `pe_headers`, `section_of`,
+  `first_export_with_prefix`), `shader` (`fnv1a64`, `fnv_3dmigoto`, `migoto_name_text`, `names_of`) and `dxgi`
+  (`is_integer`), taken from the plugins. Changed on the way: `read_text` tells a file it could not read from a
+  missing one; paths and environment values over 259 characters are whole; a mapping of 0 bytes is refused (to
+  Windows it would be the whole file); `first_export_with_prefix` and `names_of`
+  read in a function of their own under the fault handler, which catches a fault only there (the scan as it was in
+  edupscale, reading in the `__try` body itself, ended the process on a fault in the test).
 
 ## 1.0.0
 

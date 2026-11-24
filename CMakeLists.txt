@@ -63,9 +63,9 @@ endif()
 # edplugin_common_proxy_exports
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
-# a STATIC library (the log's code) with the headers, and what every plugin's code compiles with (PUBLIC); its MSVC
-# runtime is the plugin's, set before add_subdirectory
-add_library(edplugin_common STATIC src/log.cc)
+# a STATIC library (the modules' code: log, paths, file, memory, shader names) with the headers, and what every
+# plugin's code compiles with (PUBLIC); its MSVC runtime is the plugin's, set before add_subdirectory
+add_library(edplugin_common STATIC src/log.cc src/paths.cc src/file.cc src/memory.cc src/names_of.cc)
 add_library(edplugin_common::edplugin_common ALIAS edplugin_common)
 target_include_directories(edplugin_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(edplugin_common PUBLIC cxx_std_23)
@@ -78,9 +78,27 @@ if(PROJECT_IS_TOP_LEVEL)
   if(EDPLUGIN_COMMON_TESTS)
     # the library's own checks: a plain program, without d3d11 or dxgi
     # each header alone in a translation unit of its own: it includes what it needs
-    add_executable(edplugin_common_test test/library_test.cc test/log_test.cc test/alone_lock.cc test/alone_once_flag.cc
-                                        test/alone_format.cc test/alone_log.cc test/alone_state_log.cc)
+    add_executable(
+      edplugin_common_test
+      test/library_test.cc
+      test/log_test.cc
+      test/modules_test.cc
+      test/alone_lock.cc
+      test/alone_once_flag.cc
+      test/alone_format.cc
+      test/alone_log.cc
+      test/alone_state_log.cc
+      test/alone_paths.cc
+      test/alone_file.cc
+      test/alone_memory.cc
+      test/alone_shader.cc
+      test/alone_names_of.cc
+      test/alone_dxgi.cc)
     target_link_libraries(edplugin_common_test PRIVATE edplugin_common::edplugin_common)
     edplugin_common_warnings(edplugin_common_test)
+    # a dll with one export by a known prefix, beside the test (first_export_with_prefix)
+    add_library(test_exports SHARED test/test_exports.cc)
+    edplugin_common_warnings(test_exports)
+    add_dependencies(edplugin_common_test test_exports)
   endif()
 endif()
