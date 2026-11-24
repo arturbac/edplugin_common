@@ -209,8 +209,9 @@ License: MIT (see `LICENSE`).
   `README.txt` there. `wevtapi.dll` is delay-loaded, after `SetDefaultDllDirectories` (System32 only). The part
   without Windows (`report.h`, `report.cc`) is checked natively (`test/native`) and under wine with Windows'
   comparison of names (`event_report_test.exe`), with a whole report compared byte for byte (`report_golden.h`);
+  `event_report_test.exe` checks the result file's names too (`result_file.cc`: three runs in one second);
   `test/event_report_test.sh` runs the program twice under wine in a prefix of its own with saved reports (the user's
-  and the machine's, one of another kind, one not UTF-16) and a dump put there and checks its results. Built at the
+  and the machine's, one of another kind, one not UTF-16) and a dump put there and checks both its results whole. Built at the
   top level with `EDPLUGIN_COMMON_EVENT_REPORT` (ON by default; its test with
   `EDPLUGIN_COMMON_TESTS` too); `tools/event_report/package.sh <build directory> <output directory>` makes the zip a
   player gets, as context_probe's.

@@ -42,8 +42,8 @@ namespace
   constexpr std::string_view expected{
     "# test settings\n"
     "\n"
-    "<!-- Made by test from its table of settings (test/settings_doc_test.cc, `TEST_SETTINGS_DOC`); tools/test.sh checks\n"
-    "     it is up to date. Change the table, not this file. -->\n"
+    "<!-- Made by test from its table of settings (test/settings_doc_test.cc, `TEST_SETTINGS_DOC`); tools/test.sh or tools/doc.sh\n"
+    "     checks it is up to date. Change the table, not this file. -->\n"
     "\n"
     "In `test.ini`.\n"
     "\n"
@@ -109,7 +109,7 @@ namespace
 
     constexpr settings_doc_t no_groups{"t"sv, "t"sv, "i\n"sv, {}};
     auto const bare{edplugin_common::settings_doc(no_groups, {})};
-    check(bare.has_value() and *bare == "# t\n\n<!-- Made by t; tools/test.sh checks\n     it is up to date. Change the table, not this file. -->\n\ni\n",
+    check(bare.has_value() and *bare == "# t\n\n<!-- Made by t; tools/test.sh or tools/doc.sh\n     checks it is up to date. Change the table, not this file. -->\n\ni\n",
           "settings_doc: no groups, the head and the intro only");
 
     // the ";" of an entity is not the text's: a line end after "<" or ">" is "; " as after any other character

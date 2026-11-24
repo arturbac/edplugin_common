@@ -8,6 +8,7 @@
 // SetDefaultDllDirectories has limited the search to System32: not a wevtapi.dll put beside the exe (Downloads).
 #include "fold.h"
 #include "report.h"
+#include "result_file.h"
 
 #include <edplugin_common/paths/paths.h>
 
@@ -51,19 +52,6 @@ namespace
       return "?";
     std::string out(std::size_t(n), '\0');
     WideCharToMultiByte(CP_UTF8, 0, text.data(), int(text.size()), out.data(), n, nullptr, nullptr);
-    return out;
-    }
-
-  [[nodiscard]]
-  auto wide(std::string_view text) -> std::wstring
-    {
-    if(text.empty())
-      return {};
-    int const n{MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0)};
-    if(n <= 0)
-      return {};
-    std::wstring out(std::size_t(n), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, text.data(), int(text.size()), out.data(), n);
     return out;
     }
 
@@ -524,35 +512,6 @@ namespace
     L"*[System[(Level=1 or Level=2 or Level=3) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]"};
   static_assert(30ull * 24 * 60 * 60 * 1000 == 2592000000ull and days == 30, "the queries' period is days");
 
-  ///\brief `text` to a new file beside the exe, "event_report-<date>-<time>[-n].txt" (CREATE_NEW: an earlier run's
-  /// result is never replaced); its name, empty when it could not be written (`error` set)
-  [[nodiscard]]
-  auto write_result(std::string const & text, local_time_t const & now, DWORD & error) -> std::string
-    {
-    error = ERROR_PATH_NOT_FOUND;
-    std::wstring const dir{edplugin_common::directory_of(edplugin_common::module_path(nullptr))};
-    for(int n{1}; not dir.empty() and n != 10; ++n)
-      {
-      std::string const name{result_name(now, n)};
-      HANDLE const f{CreateFileW((dir + L"\\" + wide(name)).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                                 FILE_ATTRIBUTE_NORMAL, nullptr)};
-      if(f == INVALID_HANDLE_VALUE)
-        {
-        error = GetLastError();
-        if(error == ERROR_FILE_EXISTS)
-          continue;
-        return {};
-        }
-      DWORD written{};
-      bool const ok{WriteFile(f, text.data(), DWORD(text.size()), &written, nullptr) and written == text.size()};
-      error = ok ? 0 : GetLastError();
-      CloseHandle(f);
-      if(not ok)
-        (void)DeleteFileW((dir + L"\\" + wide(name)).c_str());  // no cut file left under a result's name
-      return ok ? name : std::string{};
-      }
-    return {};
-    }
   }  // namespace
 
 auto main() -> int
@@ -641,7 +600,8 @@ auto main() -> int
     file += c;
     }
   DWORD error{};
-  std::string const name{write_result(file, in.now, error)};
+  std::wstring const beside{edplugin_common::directory_of(edplugin_common::module_path(nullptr))};
+  std::string const name{write_result(beside, file, in.now, error)};
   if(not name.empty())
     std::printf("written: %s beside the program - read it before you send it\n", name.c_str());
   else

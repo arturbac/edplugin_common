@@ -7,8 +7,8 @@
 //
 //   # {title}\n
 //   \n
-//   <!-- Made by {made_by}; tools/test.sh checks\n
-//        it is up to date. Change the table, not this file. -->\n
+//   <!-- Made by {made_by}; tools/test.sh or tools/doc.sh\n
+//        checks it is up to date. Change the table, not this file. -->\n
 //   \n
 //   {intro}                                       (taken as it is: markdown ending in a line end)
 //

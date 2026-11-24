@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `settings_doc`: the doc's comment says `tools/test.sh or tools/doc.sh checks it is up to date` (before, only
+  `tools/test.sh`, though a plugin's `tools/doc.sh` makes the check); a plugin's `doc/settings.md` changes with the
+  next pin.
+- event_report: the result file is written by `write_result` (`tools/event_report/result_file.cc`), with the folder
+  given; `event_report_test.exe` checks its names with three runs in one second (`-2`, `-3`, none written over) and
+  a folder that is not there; `test/event_report_test.sh` checks both runs' files whole (before, only the first in
+  the folder's order, which was either run's).
 - `cmake/clang-msvc-sdk.cmake`: the cross build with clang's GNU-style driver targeting the MSVC ABI, for an IDE's
   code model (libclang reads GNU-style options only); the `kdev-*` presets use it, the other presets clang-cl as
   before. The library's check of the compiler takes either driver.

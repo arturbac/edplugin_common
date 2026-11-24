@@ -12,7 +12,8 @@ BUILD=$(cd "${1:?build dir}" && pwd)
 OUT=$(realpath -m "${2:?output dir}")
 NAME=event_report-1
 EXE=$BUILD/event_report.exe
-PROGRAM=(README.txt event_report.cc report.cc report.h fold.cc fold.h event_report.rc event_report.manifest)
+PROGRAM=(README.txt event_report.cc report.cc report.h fold.cc fold.h result_file.cc result_file.h event_report.rc
+         event_report.manifest)
 # the library's files the program's sources reach (their includes, and the source of each header reached)
 LIBRARY=(src/paths.cc include/edplugin_common/paths/paths.h include/edplugin_common/text/format.h)
 command -v zip > /dev/null || { echo "$0: no zip" >&2; exit 1; }

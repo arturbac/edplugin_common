@@ -4,8 +4,8 @@
 # user's archive with the prefix user's profile path and name in fields the report shows and a file loaded from that
 # profile; one in the machine's queue whose AppName is a name for people; one in a folder of another kind; one not
 # UTF-16) and a crash dump are put in the prefix's folders for them, the program runs twice, and its result files are
-# checked: two of them, the head, the loaded files told from elsewhere, the folder of another kind not read, the one not
-# UTF-16 counted, the dump's name, the user's and the computer's names replaced and nowhere in the text, every line
+# checked: two of them, each whole: the head, the loaded files told from elsewhere, the folder of another kind not
+# read, the one not UTF-16 counted, the dump's name, the user's and the computer's names replaced and nowhere in the text, every line
 # ending with CR LF. The prefix's logs are wine's (likely without the event log): the lines saying so are not checked.
 # Usage: test/event_report_test.sh <build dir> <run dir> (new and empty); prints ok/FAIL per check and PASSED or
 # FAILED; exit code 0 only when all passed.
@@ -84,25 +84,29 @@ shopt -s nullglob
 results=("$RUN"/exe/event_report-*.txt)
 shopt -u nullglob
 check "$((${#results[@]} == 2 ? 0 : 1))" "two result files event_report-<date>-<time>[-2].txt (${#results[@]})"
-result=${results[0]:-/dev/null}
-has() { grep -qF -- "$1" "$result"; }
-has_not() { ! grep -qiF -- "$1" "$result"; }
-expect "the head" has 'event_report 1 - Elite Dangerous events from Windows'"'"' logs'
-expect "the loaded file from the user's folder told as from elsewhere" has 'from elsewhere:     inject_test.dll'
-expect "the file from the Windows folder counted" has 'and 1 from the Windows folder'
-expect "a path in a field shown as its file name" has 'Test path: x (its folder left out)'
-expect "the user's name replaced in a field shown" has 'Seen by: <user> test'
-expect "the machine's queue read, the game found by AppPath" has 'from elsewhere:     machine_queue_test.dll'
-expect "a folder of another kind not read" has_not 'not_read_test.dll'
-expect "a Report.wer not UTF-16 counted" has '1 saved report(s) not read: not UTF-16'
-expect "the crash dump's name" has 'EliteDangerous64.exe.4242.dmp'
-expect "the prefix's user name ($user) nowhere" has_not "$user"
-expect "the computer's name nowhere" has_not "$(hostname)"
-if ((${#USER} >= 4)); then
-  expect "the account's name nowhere" has_not "$USER"
-fi
-all_crlf() { ! grep -qv $'\r$' "$result"; }
-expect "every line ends with CR LF" all_crlf
+# each run's file whole (which name each got depends on the second; the names themselves: event_report_test.exe)
+((${#results[@]} != 0)) || results=(/dev/null)
+for result in "${results[@]}"; do
+  echo "--- $(basename "$result")"
+  has() { grep -qF -- "$1" "$result"; }
+  has_not() { ! grep -qiF -- "$1" "$result"; }
+  expect "the head" has 'event_report 1 - Elite Dangerous events from Windows'"'"' logs'
+  expect "the loaded file from the user's folder told as from elsewhere" has 'from elsewhere:     inject_test.dll'
+  expect "the file from the Windows folder counted" has 'and 1 from the Windows folder'
+  expect "a path in a field shown as its file name" has 'Test path: x (its folder left out)'
+  expect "the user's name replaced in a field shown" has 'Seen by: <user> test'
+  expect "the machine's queue read, the game found by AppPath" has 'from elsewhere:     machine_queue_test.dll'
+  expect "a folder of another kind not read" has_not 'not_read_test.dll'
+  expect "a Report.wer not UTF-16 counted" has '1 saved report(s) not read: not UTF-16'
+  expect "the crash dump's name" has 'EliteDangerous64.exe.4242.dmp'
+  expect "the prefix's user name ($user) nowhere" has_not "$user"
+  expect "the computer's name nowhere" has_not "$(hostname)"
+  if ((${#USER} >= 4)); then
+    expect "the account's name nowhere" has_not "$USER"
+  fi
+  all_crlf() { ! grep -qv $'\r$' "$result"; }
+  expect "every line ends with CR LF" all_crlf
+done
 WINEDEBUG=-all timeout -k 10 60 wineserver -k > /dev/null 2>&1 || true
 
 verdict=$([[ $failures -eq 0 ]] && echo PASSED || echo FAILED)
