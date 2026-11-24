@@ -1,8 +1,8 @@
 // The checks of edplugin_common's headers without a Windows header, built natively with sanitizers
-// (tools/test-native.sh): memory/pe_range.h's ranges, shader/shader.h's hashes and 3DMigoto's name, also from
-// several threads at once, tools/context_probe's decoding of jumps (every form cut at every length: no read past the
-// bytes given) and its text of slots, and tools/event_report's part without Windows (report_checks.h, with an
-// ASCII-only comparison).
+// (tools/test-native.sh): memory/pe_range.h's ranges, shader/shader.h's hashes and 3DMigoto's name, also from several
+// threads at once, the module ini without Windows (ini_native.cc), tools/context_probe's decoding of jumps (every form
+// cut at every length: no read past the bytes given) and its text of slots, and tools/event_report's part without
+// Windows (report_checks.h, with an ASCII-only comparison).
 #include <edplugin_common/memory/pe_range.h>
 #include <edplugin_common/shader/shader.h>
 
@@ -18,6 +18,9 @@
 #include <vector>
 
 using namespace std::string_view_literals;
+
+// ini_native.cc
+auto ini_native_checks(void (*checker)(bool ok, char const * what)) -> void;
 
 namespace
   {
@@ -143,6 +146,7 @@ auto main() -> int
   shader_names();
   shader_names_threads();
   context_probe_jumps();
+  ini_native_checks(check);
   event_report::report_checks(check, event_report::equal_ascii_fold, false);
   std::printf(failures ? "FAILED (%d failure(s))\n" : "PASSED (%d failure(s))\n", failures);
   return failures ? 1 : 0;

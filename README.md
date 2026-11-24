@@ -62,7 +62,10 @@ License: MIT (see `LICENSE`).
 - `include/edplugin_common/file/file.h` (code in `src/file.cc`) - `read_text(path)`: the file whole, empty when there
   is no such file, no value when it is there but cannot be read (so a caller never takes it for an empty one);
   `write_time(path)` (0 without the file); `write_whole_file(path, data, bytes)`: made anew, a file not written whole
-  removed, a failure one line in the module's log; `append_to_file(path, data, bytes)`; `map_file_rw(path, bytes,
+  removed, a failure one line in the module's log; `append_to_file(path, data, bytes, mode)`: `create_or_append` (by
+  default), `create_new` (never a file that is there; not written whole: taken away through its own handle) or
+  `append_existing` (held unshared, written at its end; not written whole: cut back to its length), false with
+  `GetLastError()` the cause; `map_file_rw(path, bytes,
   tag)`: a file shared with other processes (made when missing, its directory not; grown to `bytes`), a failure one
   line `<tag>: cannot open|map|view ...`; `map_file_ro(path, least, most)`: another process's file, none when missing
   or smaller than `least`, silent. The views of both stay for the process's life.
@@ -152,6 +155,30 @@ License: MIT (see `LICENSE`).
   - `write_settings_doc(variable, doc, rows)`: written to the file the environment variable names (nothing
     without it); the status, the error, the system's error code and the path come back for the plugin's log.
   Neither throws. A plugin's `tools/test.sh` sets the variable and compares the file with its `doc/settings.md`.
+- `include/edplugin_common/ini/` (code of the watch in `src/ini.cc`) - a plugin's ini by its one table of settings,
+  the same rules in every plugin:
+  - `ini_text.h` (no Windows header): a line split into its key, `=` or `+=` and value (`;`, `#`, `[` at its start: a
+    comment); the comment after a value by its kind: numbers, switches, hexadecimal names, colours, lists, sizes and
+    choices at the first `;` or `#`, plain text only after a space or a tab, a path, a folder or a dll's name never;
+    the readers (`read_float` as `strtof`, `read_uint32`, `read_bool`, `read_hex64` with an optional `0x` and leading
+    zeros, at most 16 significant digits, 0 taken or refused, `read_hex24`, `read_hex_list` by commas, spaces or
+    tabs); a UTF-8 byte order mark passed over, UTF-16 told; the file's own line end; UTF-8 and UTF-16 both ways.
+  - `ini_table.h` (no Windows header): the table `ini_table_t` - rows `ini_setting_t` (name, field, group, read at
+    the start or while the game runs, range, `about`, `doc_more`, `ini_note`, a text's kind), the withdrawn keys
+    (`ini_withdrawn_t`, a note of their own once a session), the comment over a key in the ini (`about` or own), a
+    list's line with a bad word refused or its good names taken, 0 as a name taken or refused. `read_ini_text` from the
+    plugin's defaults with notes in one form for every plugin (the header's comment) and the line that set each row;
+    `at_start_changes` (a start-only setting changed while the game runs, once a session); `ini_completion` (the
+    blocks of the settings a file names nowhere, also not as a comment, by its line ends); `ini_doc_rows_t` (the rows
+    for `write_settings_doc`). The library holds the values' form, the plugin their meaning (its clamps after a read).
+  - `live.h` (no Windows header): `live_settings_t`, two slots and an atomic pointer; `publish` copies the live rows
+    field by field into the slot not in use and adds one to its generation. The start-only fields never change after
+    `start`: any thread may read them; the live fields and the generation only the publishing thread.
+  - `ini.h`: `complete_ini` (a new file `create_new` with `\r\n`, one that is there `append_existing` by its line ends;
+    UTF-16 and a file that cannot be read left alone), `read_ini_file`, `ini_watch_t` (at most once a second by the
+    last write; a file taken away is said once and leaves the settings as they are; `ask_soon` from any thread).
+  Nothing in it logs; the plugin logs the notes and results. A key taken out of a plugin goes to its withdrawn keys;
+  a key whose type or meaning changes gets a new name, the old one withdrawn.
 - `cmake/clang-cl-msvc-sdk.cmake` - the toolchain: a cross build for 64-bit Windows on Linux with clang-cl and LLVM's
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
@@ -165,7 +192,7 @@ License: MIT (see `LICENSE`).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
 - The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory, pe, shader
-  names, settings_doc and guard) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+  names, settings_doc, ini and guard) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
@@ -323,7 +350,9 @@ Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
 git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
-d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, `pe_image` with its exports and
+d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, the ini's files (made, completed
+by their line ends, UTF-16 and a file that cannot be read left alone, a write that fails part way taken away or cut
+back, the watch's looks), `pe_image` with its exports and
 imports on every module of the process and on an image made in memory, whole and out of shape one way at a time, and
 the guard's: faults and C++ exceptions, locks let go (also through a call by pointer, let go out of order and under a
 nested guard), the codes that are no fault, `guard_t`'s limit and handler, a fault in another module, a thread
@@ -350,7 +379,9 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   with its runtime (MSVC's does not link without AddressSanitizer's), ThreadSanitizer (clang-cl has none for
   Windows).
 - `tools/test-native.sh <scratch directory>`: the headers without a Windows header (`test/native`:
-  `memory/pe_range.h`, `shader/shader.h`, `tools/context_probe/jump.h` and `slots.h`)
+  `memory/pe_range.h`, `shader/shader.h`, `ini/ini_text.h`, `ini/ini_table.h` and `ini/live.h` - the latter with
+  a thread that keeps a reference to the start-only fields through 200 publications -, `tools/context_probe/jump.h`
+  and `slots.h`)
   built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
   `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
   seconds (600 unless set); a run stopped by the limit is said with its exit code.

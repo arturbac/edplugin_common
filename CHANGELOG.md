@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The module `ini` (`include/edplugin_common/ini/`, `src/ini.cc`): a plugin's ini by its one table of settings,
+  taken from edupscale, edwide_screen and edworld so the three read, write and watch it alike. `ini_text.h` (a line,
+  the comment by the value's kind, the readers, byte order marks, line ends, UTF-8 and UTF-16), `ini_table.h` (the
+  table, `read_ini_text` with one form of notes, withdrawn keys, `at_start_changes`, `ini_completion`,
+  `ini_doc_rows_t`), `live.h` (`live_settings_t`: two slots, the generation in the slot, only the live rows copied at
+  a publication) and `ini.h` (`complete_ini`, `read_ini_file`, `ini_watch_t`). Without Windows the first three are
+  checked natively with ASan, UBSan and TSan; the files under wine.
+- `append_to_file(path, data, bytes, mode)`: the modes `create_new` (a file not written whole taken away through its
+  own handle) and `append_existing` (held unshared, written at its end, cut back to its length when not written
+  whole); `create_or_append` by default, as before. On false, `GetLastError()` is the cause.
+  `append_to_file_cut` for the library's test only.
 - event_report builds with the `kdev-*` presets too: its delay-load of `wevtapi.dll` goes to the linker through
   CMake's `LINKER:` prefix (before, clang's GNU-style driver took `/DELAYLOAD:wevtapi.dll` for an input file); the
   release build's import table as before (`wevtapi.dll` delay-loaded).

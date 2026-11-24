@@ -23,8 +23,29 @@ namespace edplugin_common
   /// module's log (`file: ...`) with the error's code
   auto write_whole_file(std::wstring const & path, void const * data, std::size_t bytes) noexcept -> bool;
 
-  ///\brief `bytes` bytes appended to the file (made when missing); false when not all were written. Logs nothing
-  auto append_to_file(std::wstring const & path, void const * data, std::size_t bytes) noexcept -> bool;
+  ///\brief how append_to_file opens the file
+  enum struct append_e
+    {
+    ///\brief made when missing, appended to otherwise, shared for reading and writing; a part written stays
+    create_or_append,
+    ///\brief made, never one that is there (it fails with ERROR_FILE_EXISTS); not written whole: taken away through
+    /// its own handle, so no other file of its name can be met
+    create_new,
+    ///\brief only one that is there, held unshared while it is written at its end (its length from the handle); not
+    /// written whole: cut back to its length before, through the same handle
+    append_existing
+    };
+
+  ///\brief `bytes` bytes appended to the file, as `mode` opens it; false when not all were written, GetLastError()
+  /// then the cause, and `*undone` (when given) whether the file is as it was before (nothing written, or the part
+  /// written taken back: always false for create_or_append after a part). Logs nothing
+  auto append_to_file(std::wstring const & path, void const * data, std::size_t bytes,
+                      append_e mode = append_e::create_or_append, bool * undone = nullptr) noexcept -> bool;
+
+  ///\brief for the library's test only: append_to_file whose writing fails after `cut` bytes (ERROR_WRITE_FAULT), as
+  /// a full disk would stop it
+  auto append_to_file_cut(std::wstring const & path, void const * data, std::size_t bytes, append_e mode,
+                          std::size_t cut, bool * undone = nullptr) noexcept -> bool;
 
   ///\brief the file (made when missing, its directory not; grown to `bytes` when smaller) mapped for reading and
   /// writing, shared with other processes; the view stays for the process's life (nothing unmaps it). A failure is a

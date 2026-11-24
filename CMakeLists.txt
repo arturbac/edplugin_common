@@ -63,7 +63,7 @@ endif()
 # edplugin_common_proxy_exports
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
-# a STATIC library (the modules' code: log, paths, file, memory, pe, shader names, settings_doc, guard) with the
+# a STATIC library (the modules' code: log, paths, file, memory, pe, shader names, settings_doc, ini, guard) with the
 # headers, and what every plugin's code compiles with (PUBLIC); its MSVC runtime is the plugin's, set before
 # add_subdirectory
 add_library(
@@ -75,6 +75,7 @@ add_library(
   src/pe.cc
   src/names_of.cc
   src/settings_doc.cc
+  src/ini.cc
   src/guard.cc)
 # the guard's __try stays around a call of its own only outside LTO (include/edplugin_common/guard/guard.h): this file
 # never takes part in it, whatever a plugin's build does
@@ -124,6 +125,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/log_test.cc
       test/modules_test.cc
       test/settings_doc_test.cc
+      test/ini_test.cc
       test/pe_test.cc
       test/guard_test.cc
       test/alone_lock.cc
@@ -138,6 +140,10 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_names_of.cc
       test/alone_dxgi.cc
       test/alone_settings_doc.cc
+      test/alone_ini.cc
+      test/alone_ini_text.cc
+      test/alone_ini_table.cc
+      test/alone_ini_live.cc
       test/alone_guard.cc
       test/alone_pe.cc
       test/alone_pe_range.cc)

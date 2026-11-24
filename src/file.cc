@@ -77,16 +77,99 @@ namespace edplugin_common
     return ok;
     }
 
-  auto append_to_file(std::wstring const & path, void const * data, std::size_t bytes) noexcept -> bool
+  namespace
     {
-    HANDLE const f{CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
-                               FILE_ATTRIBUTE_NORMAL, nullptr)};
-    if(f == INVALID_HANDLE_VALUE)
-      return false;
-    DWORD written{};
-    bool const ok{bytes <= MAXDWORD and WriteFile(f, data, static_cast<DWORD>(bytes), &written, nullptr) and written == bytes};
-    CloseHandle(f);
-    return ok;
+    ///\brief `bytes` bytes written through `f` where it stands, at most `cut` of them (then ERROR_WRITE_FAULT); 0 when
+    /// all were written, else the error
+    [[nodiscard]]
+    auto write_all(HANDLE f, void const * data, std::size_t bytes, std::size_t cut) noexcept -> DWORD
+      {
+      auto const * at{static_cast<char const *>(data)};
+      std::size_t left{std::min(bytes, cut)};
+      while(left != 0)
+        {
+        DWORD const chunk{static_cast<DWORD>(std::min<std::size_t>(left, 1u << 30))};
+        DWORD written{};
+        if(not WriteFile(f, at, chunk, &written, nullptr))
+          return GetLastError();
+        if(written != chunk)
+          return ERROR_WRITE_FAULT;
+        at += written;
+        left -= written;
+        }
+      return cut < bytes ? DWORD{ERROR_WRITE_FAULT} : DWORD{};
+      }
+
+    [[nodiscard]]
+    auto append(std::wstring const & path, void const * data, std::size_t bytes, append_e mode, std::size_t cut,
+                bool * undone) noexcept -> bool
+      {
+      DWORD error{};
+      bool taken_back{true};  // as before the call: nothing written, or the part written taken back
+      if(mode == append_e::create_or_append)
+        {
+        HANDLE const f{CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
+                                   FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if(f == INVALID_HANDLE_VALUE)
+          return false;
+        error = write_all(f, data, bytes, cut);
+        taken_back = error == 0;
+        if(not CloseHandle(f) and error == 0)
+          error = GetLastError();
+        }
+      else if(mode == append_e::create_new)
+        {
+        HANDLE const f{CreateFileW(path.c_str(), GENERIC_WRITE | DELETE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if(f == INVALID_HANDLE_VALUE)
+          return false;
+        error = write_all(f, data, bytes, cut);
+        if(error != 0)
+          {
+          // the file made here, not whole: taken away through its own handle before it is closed
+          FILE_DISPOSITION_INFO gone{TRUE};
+          taken_back = SetFileInformationByHandle(f, FileDispositionInfo, &gone, sizeof gone) != FALSE;
+          }
+        if(not CloseHandle(f) and error == 0)
+          error = GetLastError();
+        }
+      else
+        {
+        HANDLE const f{CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if(f == INVALID_HANDLE_VALUE)
+          return false;
+        LARGE_INTEGER size{};
+        if(not GetFileSizeEx(f, &size) or not SetFilePointerEx(f, size, nullptr, FILE_BEGIN))
+          error = GetLastError();
+        else
+          {
+          error = write_all(f, data, bytes, cut);
+          // not written whole: back to the length it had, through the same handle
+          if(error != 0)
+            {
+            FILE_END_OF_FILE_INFO back{size};
+            taken_back = SetFileInformationByHandle(f, FileEndOfFileInfo, &back, sizeof back) != FALSE;
+            }
+          }
+        if(not CloseHandle(f) and error == 0)
+          error = GetLastError();
+        }
+      if(undone)
+        *undone = taken_back;
+      SetLastError(error);
+      return error == 0;
+      }
+    }  // namespace
+
+  auto append_to_file(std::wstring const & path, void const * data, std::size_t bytes, append_e mode, bool * undone) noexcept
+    -> bool
+    {
+    return append(path, data, bytes, mode, bytes, undone);
+    }
+
+  auto append_to_file_cut(std::wstring const & path, void const * data, std::size_t bytes, append_e mode, std::size_t cut,
+                          bool * undone) noexcept -> bool
+    {
+    return append(path, data, bytes, mode, cut, undone);
     }
 
   auto map_file_rw(std::wstring const & path, std::size_t bytes, std::string_view tag) noexcept -> void *
