@@ -1,15 +1,16 @@
 context_probe 6 - a small diagnosis for the edloader plugins on Windows
 
-What it does: on each of your graphics cards, and once on the card Windows picks for a program that names none, it
-makes a Direct3D 11 device (as a game does at its start, with no drawing), looks where Windows keeps the
-tables of the device's and the device context's methods, whether Windows rewrites them, and whether another program
-changed them (and to which module that change leads), also inside the code of Windows' d3d11.dll. Then, as a game
-does next, it makes a swap chain (what a game shows its pictures through) on a window that is never shown, presents a
-few empty pictures to it without drawing anything, and looks again: at the swap chain's table, at what changed in the
-device's tables, and at which files came into it (overlays often join only at this point). It also lists the names of
-the files loaded into it from outside the Windows folder - programs that put themselves into every program (overlays,
-security software). It writes what it found beside the exe, to a file named by the time of the run, such as
-context_probe-20261124-131500.txt; each run gets a file of its own. It takes about 10 seconds per card.
+What it does: on each of your graphics cards, and once on the card Windows picks for a program that names none, it makes
+a Direct3D 11 device (as a game does at its start, with no drawing), looks where Windows keeps the tables of the
+device's and the device context's methods, whether Windows rewrites them, and whether another program changed them (and
+to which module that change leads), also inside the code of Windows' d3d11.dll. Then, as a game does next, it makes a
+swap chain (what a game shows its pictures through) on a window that is never shown, presents a few empty pictures to it
+without drawing anything, and looks again: at the swap chain's table, at what changed in the device's tables, and at
+which files came into it (overlays often join only at this point). It also lists the names of the files loaded into it
+from outside the Windows folder - programs that put themselves into every program (overlays, security software). It
+writes what it found beside the exe, to a file named by the time of the run, such as context_probe-20261124-131500.txt;
+each run gets a file of its own. It takes about 10 seconds per card (a picture that does not come back in 10 seconds
+ends the look at the cards left, and is said in the file).
 
 What it does not see: it is not the game, so an overlay that joins only a game it knows (by the game's program name,
 or when the game is started from its launcher or Steam) is not seen. "Nothing found" means nothing found in this
@@ -17,8 +18,9 @@ program, not that nothing changes the game.
 
 What it does not do: no network, no drawing, no window on the screen (the window it makes is never shown), no
 administrator rights. The program itself writes no file but its result beside it (an earlier run's result is never
-replaced); the graphics driver may keep its usual caches. The file holds the Windows and d3d11.dll versions, your
-graphics cards' names and numbers, and file names of loaded modules - no user name, computer name or paths. Its own
+replaced); the graphics driver may keep its usual caches, and its software (such as GeForce Experience or Radeon
+Software) may list context_probe.exe among the programs it has seen. The file holds the Windows and d3d11.dll versions,
+your graphics cards' names and numbers, and file names of loaded modules - no user name, computer name or paths. Its own
 source is beside the exe (context_probe.cc and the files beside it), the library's sources it uses in the
 edplugin_common folder; SOURCE.txt names the library's commit.
 

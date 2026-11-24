@@ -10,7 +10,6 @@
 #include <cstdio>
 #include <cstddef>
 #include <ranges>
-#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -127,8 +126,10 @@ namespace context_probe
 
   ///\brief the slots in which two reads of a table differ, as many as the longer read; a slot only one read reached
   /// counts as changed
+  template<class entry_t>
   [[nodiscard]]
-  inline auto slots_differ(std::span<void * const> before, std::span<void * const> now) -> std::vector<bool>
+  constexpr auto slots_differ(std::vector<entry_t> const & before, std::vector<entry_t> const & now)
+    -> std::vector<bool>
     {
     std::vector<bool> changed(std::max(before.size(), now.size()));
     for(std::size_t i{}; i != changed.size(); ++i)
@@ -139,7 +140,7 @@ namespace context_probe
   ///\brief the names in `now` that `before` does not hold, in `now`'s order (a name twice in `now` and once in
   /// `before` is gained once)
   [[nodiscard]]
-  inline auto names_gained(std::span<std::string const> before, std::span<std::string const> now)
+  constexpr auto names_gained(std::vector<std::string> const & before, std::vector<std::string> const & now)
     -> std::vector<std::string>
     {
     std::vector<std::string> left{before.begin(), before.end()};
@@ -151,6 +152,21 @@ namespace context_probe
         gained.push_back(name);
     return gained;
     }
+
+  static_assert(
+    []
+      {
+      std::vector<bool> const changed{slots_differ(std::vector<int>{1, 2, 3}, std::vector<int>{1, 5, 3, 4})};
+      return changed == std::vector<bool>{false, true, false, true};
+      }(),
+    "slots_differ: a changed slot and one only the longer read reached");
+  static_assert(
+    []
+      {
+      std::vector<std::string> const gained{names_gained({"a.dll", "b.dll"}, {"b.dll", "c.dll", "b.dll", "a.dll"})};
+      return gained == std::vector<std::string>{"c.dll", "b.dll"};
+      }(),
+    "names_gained: a new name and a name once more");
 
   ///\brief the result file's name for a run started at the local time given, "context_probe-20261124-131500.txt"; the
   /// `n`-th try for that second (from 2) gets "-<n>" before ".txt", so no run overwrites another's result

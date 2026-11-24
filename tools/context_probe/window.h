@@ -35,6 +35,13 @@ namespace context_probe
     ///\brief the messages waiting for this thread's windows, handled without waiting for more
     auto pump() const noexcept -> void;
 
+    ///\brief the window left as it is, neither destroyed nor its class unregistered (something may still use it)
+    auto abandon() noexcept -> void
+      {
+      window_ = nullptr;
+      class_ = 0;
+      }
+
   private:
     ATOM class_{};
     HWND window_{};

@@ -35,8 +35,10 @@ namespace context_probe
   hidden_window_t::~hidden_window_t()
     {
     if(window_)
+      {
       DestroyWindow(window_);
-    pump();  // the destroy's own messages
+      pump();  // the destroy's own messages
+      }
     if(class_)
       UnregisterClassW(class_name, GetModuleHandleW(nullptr));
     }

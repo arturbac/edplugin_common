@@ -117,7 +117,7 @@ namespace
   /// graphics driver loads from and the side-by-side folder are all in it), besides the exe: what the process loaded
   /// beside the exe, and what was injected into it (overlays, security software); false when the list could not be read
   [[nodiscard]]
-  auto outside_windows(std::vector<std::string> & names) -> bool
+  auto outside_windows(std::vector<std::string> & names, char const * prefix = "") -> bool
     {
     names.clear();
     wchar_t windows[MAX_PATH]{};
@@ -138,7 +138,7 @@ namespace
     if(not listed)
       return false;
     if(needed > modules.size() * sizeof(HMODULE))
-      say("modules: the first %zu of %zu", modules.size(), std::size_t(needed / sizeof(HMODULE)));
+      say("%smodules: the first %zu of %zu", prefix, modules.size(), std::size_t(needed / sizeof(HMODULE)));
     modules.resize(std::min<std::size_t>(modules.size(), needed / sizeof(HMODULE)));
     std::wstring windows_dir{windows, length};
     if(not windows_dir.ends_with(L'\\'))
@@ -483,9 +483,10 @@ namespace
   static_assert(device5_entries == 69);
 
   ///\brief `chain`'s Present(0, 0), on a thread of its own with a timeout: a Present that hangs (an overlay, a driver)
-  /// holds that thread, not the probe; the Present's hr, or nothing when it did not come back in 10 s
+  /// holds that thread, not the probe; the Present's hr, or nothing when it did not come back in 10 s. The window's
+  /// messages are handled meanwhile: DXGI or an overlay may send it one from the Present's thread and wait for it
   [[nodiscard]]
-  auto present_in_time(IDXGISwapChain1 * chain, HRESULT & hr) -> bool
+  auto present_in_time(IDXGISwapChain1 * chain, context_probe::hidden_window_t const & window, HRESULT & hr) -> bool
     {
     struct work_t
       {
@@ -508,7 +509,16 @@ namespace
       hr = HRESULT_FROM_WIN32(GetLastError());
       return true;
       }
-    DWORD const waited{WaitForSingleObject(thread, 10000)};
+    ULONGLONG const began{GetTickCount64()};
+    DWORD waited{WAIT_TIMEOUT};
+    for(ULONGLONG spent{}; spent < 10000; spent = GetTickCount64() - began)
+      {
+      waited = MsgWaitForMultipleObjects(1, &thread, FALSE, DWORD(10000 - spent), QS_ALLINPUT);
+      if(waited != WAIT_OBJECT_0 + 1)
+        break;
+      window.pump();
+      waited = WAIT_TIMEOUT;
+      }
     CloseHandle(thread);
     if(waited != WAIT_OBJECT_0)
       return false;
@@ -526,9 +536,12 @@ namespace
     std::vector<void *> const now{context_probe::read_entries(table, int(n))};
     std::vector<bool> const changed{context_probe::slots_differ(before, now)};
     int const count{int(std::ranges::count(changed, true))};
-    say("    %s: table pointer %s, slots changed since before the swap chain %d of %d: %s", what,
-        table == table_before ? "same" : "MOVED", count, int(std::max(before.size(), now.size())),
+    say("    %s: table pointer %s, entries read %zu of %zu before and %zu now, slots changed since before the swap "
+        "chain %d: %s",
+        what, table == table_before ? "same" : "MOVED", before.size(), n, now.size(), count,
         context_probe::ranges_text(changed).c_str());
+    if(now.size() < changed.size())
+      say("      %s: slots %zu-%zu counted as changed: not read now", what, now.size(), changed.size() - 1);
     int told{};
     for(std::size_t i{}; i != changed.size() and i != now.size(); ++i)
       {
@@ -552,7 +565,7 @@ namespace
   /// Present(0, 0) without drawing: after each step the swap chain's table, what changed in the device's and the
   /// context's tables since before it, and the modules outside the Windows folder that came (an overlay that hooks only
   /// at the swap chain or at Present). The window is never shown; the swap chain and the window are released on every
-  /// way out but a hung Present (its thread holds them)
+  /// way out but a hung Present (its thread holds them: both left as they are)
   auto swap_chain_step(ID3D11Device * device, ID3D11DeviceContext * ctx) -> void
     {
     say("");
@@ -564,9 +577,9 @@ namespace
     void ** const device_table{*reinterpret_cast<void ***>(device)};
     std::vector<void *> const device_before{context_probe::read_entries(device_table, device5_entries)};
     std::vector<std::string> modules_before;
-    bool const modules_known{outside_windows(modules_before)};
+    bool const modules_known{outside_windows(modules_before, "    swap chain, ")};
 
-    context_probe::hidden_window_t const window;
+    context_probe::hidden_window_t window;
     if(not window.handle())
       {
       say("swap chain: not made, no window (error %lu)", static_cast<unsigned long>(window.error()));
@@ -612,21 +625,24 @@ namespace
     auto const step = [&](char const * after)
       {
       say("swap chain, after %s:", after);
-      table_facts("  swap chain", chain.p, *reinterpret_cast<void ***>(chain.p), context_probe::swap_chain_methods,
-                  system_dxgi, "dxgi");
-      table_since("immediate context", ctx_table, ctx_before, ctx, context_probe::context_methods);
-      table_since("device", device_table, device_before, device, context_probe::device_methods);
+      if(system_dxgi)
+        table_facts("  swap chain", chain.p, *reinterpret_cast<void ***>(chain.p), context_probe::swap_chain_methods,
+                    system_dxgi, "dxgi");
+      else
+        say("  swap chain: its table not told, dxgi.dll from the system folder not loaded");
+      table_since("swap chain, immediate context", ctx_table, ctx_before, ctx, context_probe::context_methods);
+      table_since("swap chain, device", device_table, device_before, device, context_probe::device_methods);
       std::vector<std::string> modules;
-      if(not modules_known or not outside_windows(modules))
+      if(not modules_known or not outside_windows(modules, "    swap chain, "))
         {
-        say("    modules outside the Windows folder: not read");
+        say("    swap chain, modules outside the Windows folder: not read");
         return;
         }
       std::vector<std::string> const gained{context_probe::names_gained(modules_before, modules)};
-      say("    modules outside the Windows folder: %zu, %zu came since before the swap chain", modules.size(),
-          gained.size());
+      say("    swap chain, modules outside the Windows folder: %zu, %zu came since before the swap chain",
+          modules.size(), gained.size());
       for(std::string const & name: gained)
-        say("      module came %s", name.c_str());
+        say("      swap chain, module came %s", name.c_str());
       };
     window.pump();
     step("the swap chain made");
@@ -634,10 +650,11 @@ namespace
     for(int i{1}; i <= presents; ++i)
       {
       HRESULT present{};
-      if(not present_in_time(chain.p, present))
+      if(not present_in_time(chain.p, window, present))
         {
         present_hung = true;
         chain.p = nullptr;  // held by the hung thread: neither released nor used
+        window.abandon();   // nor its window: a hook on the window's messages may wait for that thread
         say("swap chain: Present %d did not come back in 10 s; nothing more with this device", i);
         return;
         }
@@ -855,6 +872,8 @@ namespace
       }
     say("d3d11.dll from the system folder: yes, version %s", module_version(system_d3d11).c_str());
     system_dxgi = LoadLibraryExW(L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if(not system_dxgi)
+      say("dxgi.dll from the system folder: not loaded (error %lu)", GetLastError());
     std::vector<hardware_t> hardware{adapters()};
     if(hardware.empty())
       {

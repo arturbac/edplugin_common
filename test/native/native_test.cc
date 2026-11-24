@@ -104,7 +104,8 @@ namespace
     check(context_probe::ranges_text(context_probe::slots_differ(before, now)) == "1, 3",
           "slots_differ: a changed slot and one only the longer read reached");
     check(context_probe::ranges_text(context_probe::slots_differ(now, before)) == "1, 3", "slots_differ: either way");
-    check(context_probe::slots_differ({}, {}).empty(), "slots_differ: two empty reads");
+    check(context_probe::slots_differ(std::vector<void *>{}, std::vector<void *>{}).empty(),
+          "slots_differ: two empty reads");
 
     std::vector<std::string> const was{"a.dll", "b.dll", "b.dll"};
     std::vector<std::string> const is{"b.dll", "c.dll", "b.dll", "b.dll", "a.dll"};

@@ -180,7 +180,8 @@ License: MIT (see `LICENSE`).
   the first and after the last `Present` the swap chain's table (entries outside the system dxgi, entries in it that
   start with a jump out of it), the slots of the device's and the context's tables changed since before the swap chain
   with where they lead, and the modules outside the Windows folder that came, for an overlay that hooks only at the swap
-  chain or at `Present`. Every table is read as a copy, under `__try`. It is not the game: an overlay that hooks only a
+  chain or at `Present`; after the last `Present` the device's and the context's tables told again (an inline hook in
+  the system d3d11 too). Every table is read as a copy, under `__try`. It is not the game: an overlay that hooks only a
   game it knows (by its exe) is not seen. The lines go to `context_probe-<date>-<time>.txt` beside it (a file of its own
   for each run); a player's instructions in `README.txt` there. The decoding of jumps, the methods' names by slot and
   the comparison of two reads (`jump.h`, `slots.h`) need no Windows header. Built at the top level with

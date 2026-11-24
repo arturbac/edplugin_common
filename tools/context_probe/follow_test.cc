@@ -199,7 +199,9 @@ auto main() -> int
             "hidden_window_t: the client size", size);
       }
     }
-  if(not made and error == ERROR_INVALID_WINDOW_HANDLE)
+  // wine tells itself by an export of its ntdll; on Windows the same error is a failure
+  bool const under_wine{GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "wine_get_version") != nullptr};
+  if(not made and error == ERROR_INVALID_WINDOW_HANDLE and under_wine)
     std::printf("skip: hidden_window_t: no window can be made here (error %lu: no display for wine)\n",
                 static_cast<unsigned long>(error));
   else
