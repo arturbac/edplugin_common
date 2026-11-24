@@ -18,7 +18,8 @@ namespace context_probe
   auto where(void const * p) -> std::string;
 
   ///\brief the jumps from `entry` (at most `hops`), each "<form> -> <where>", until one leads into a module or no
-  /// jump of a known form is there; "no jump read" when the first bytes are not one
+  /// jump of a known form is there ("; stopped after <hops> jumps" when the limit ended it); "no jump read" when the
+  /// first bytes are not one
   [[nodiscard]]
   auto follow_jumps(void const * entry, int hops = 4) -> std::string;
   }  // namespace context_probe

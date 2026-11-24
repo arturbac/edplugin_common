@@ -35,7 +35,8 @@
 - `tools/context_probe/`: `context_probe.exe` 5, after the probe edworld used on other Windows: every hardware adapter
   (the default and the high performance one named), the slots the runtime rewrites, each table entry outside the
   system d3d11 with its method's name and the module its trampoline leads to, the process's modules outside the
-  system folder; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`.
+  Windows folder; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`;
+  `tools/context_probe/package.sh` for the zip a player gets.
 
 ## 1.0.0
 

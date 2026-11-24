@@ -68,7 +68,7 @@ namespace context_probe
     if(VirtualQuery(p, &m, sizeof m) != sizeof m)
       return "no module, not readable";
     char const * const kind{m.State == MEM_FREE      ? "free"
-                            : m.State == MEM_RESERVE ? "reserved"
+                            : m.State == MEM_RESERVE ? "reserve"
                             : m.Type == MEM_PRIVATE  ? "private"
                             : m.Type == MEM_MAPPED   ? "mapped"
                             : m.Type == MEM_IMAGE    ? "image"
@@ -81,7 +81,9 @@ namespace context_probe
     {
     std::string text;
     void const * at{entry};
-    for(int hop{}; hop != hops; ++hop)
+    int hop{};
+    bool ended{};  // in a module, at code that is no jump, or at memory that cannot be read
+    for(; hop != hops and not ended; ++hop)
       {
       // up to 16 bytes, as many as can be read in the region
       std::uint8_t code[16]{};
@@ -91,11 +93,15 @@ namespace context_probe
       if(n == 0 or not read_caught(code, at, n))
         {
         (text += text.empty() ? "" : "; ") += "not readable";
+        ended = true;
         break;
         }
       jump_t const jump{decode_jump(std::span<std::uint8_t const>{code, n}, reinterpret_cast<std::uintptr_t>(at))};
       if(jump.kind == jump_e::none)
+        {
+        ended = true;
         break;
+        }
       std::uint64_t target{jump.target};
       if(jump.kind == jump_e::rip_pointer)
         {
@@ -103,15 +109,19 @@ namespace context_probe
         if(not edplugin_common::readable(pointer, sizeof target) or not read_caught(&target, pointer, sizeof target))
           {
           (text += text.empty() ? "" : "; ") += "jmp [rip] -> its pointer not readable";
+          ended = true;
           break;
           }
         }
       at = reinterpret_cast<void const *>(static_cast<std::uintptr_t>(target));
       ((text += text.empty() ? "" : "; ") += jump_name(jump.kind)) += " -> ";
       text += where(at);
-      if(edplugin_common::module_of(at))
-        break;
+      ended = edplugin_common::module_of(at) != nullptr;
       }
-    return text.empty() ? std::string{"no jump read"} : text;
+    if(text.empty())
+      return "no jump read";
+    if(not ended)
+      text += "; stopped after " + std::to_string(hop) + " jumps";
+    return text;
     }
   }  // namespace context_probe

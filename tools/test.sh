@@ -22,7 +22,8 @@ cp "$BUILD/edplugin_common_test.exe" "$BUILD/test_exports.dll" "$RUN/"
 rc=0
 wine_common_run "$RUN" "$RUN/out.txt" -- edplugin_common_test.exe || rc=$?
 cat "$RUN/out.txt"
-# tools/context_probe's following of table entries, without d3d11, when it was built (EDPLUGIN_COMMON_CONTEXT_PROBE)
+# tools/context_probe's following of table entries, without d3d11, when it was built (EDPLUGIN_COMMON_CONTEXT_PROBE;
+# a build directory that had it keeps its exe after the option is turned off)
 probe_rc=0
 if [[ -f $BUILD/context_probe_test.exe ]]; then
   cp "$BUILD/context_probe_test.exe" "$RUN/"

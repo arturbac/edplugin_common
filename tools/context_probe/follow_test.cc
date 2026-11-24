@@ -101,8 +101,17 @@ auto main() -> int
   std::memcpy(loop, "\xEB\xFE", 2);
   std::string const loop_text{context_probe::follow_jumps(loop, 3)};
   check(loop_text.find("jmp rel8") == 0 and loop_text.find("; jmp rel8") != std::string::npos
-          and not ends_in_module(loop_text),
+          and not ends_in_module(loop_text) and loop_text.ends_with("; stopped after 3 jumps"),
         "a jump to itself stops at the hops given", loop_text);
+
+  // mov rax, imm64; push rax; ret
+  std::uint8_t * const rax_ret{page + 384};
+  std::memcpy(rax_ret, "\x48\xB8", 2);
+  put64(rax_ret + 2, address);
+  std::memcpy(rax_ret + 10, "\x50\xC3", 2);
+  std::string const rax_ret_text{context_probe::follow_jumps(rax_ret)};
+  check(starts_with(rax_ret_text, "mov rax, push rax, ret -> ") and ends_in_module(rax_ret_text),
+        "mov rax, push rax, ret leads to the module", rax_ret_text);
 
   // an ordinary first instruction (mov [rsp+8], rbx)
   std::uint8_t * const plain{page + 320};

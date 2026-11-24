@@ -3,7 +3,7 @@
 // process changed them. It loads d3d11.dll and dxgi.dll from the system folder only, makes devices on every hardware
 // adapter (no flags, BGRA support, single-threaded), reads their tables, takes a snapshot of the context's entries
 // around a few calls of the runtime, follows the entries that lie outside the system d3d11 to the module they lead
-// to, and lists the process's modules outside the system folder (what was injected into it). The lines go to
+// to, and lists the process's modules outside the Windows folder (what was injected into it). The lines go to
 // context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
 // name and no path in the output.
 #include "follow.h"
@@ -40,8 +40,10 @@ namespace
     char line[1024]{};
     va_list args;
     va_start(args, format);
-    std::vsnprintf(line, sizeof line, format, args);
+    int const n{std::vsnprintf(line, sizeof line, format, args)};
     va_end(args);
+    if(n >= int(sizeof line))
+      std::memcpy(line + sizeof line - 7, " [cut]", 7);  // never silently shorter
     out += line;
     out += "\r\n";
     std::fputs(line, stdout);
@@ -99,38 +101,41 @@ namespace
     return name;
     }
 
-  ///\brief the modules of the process outside the system folder, by their file names: what the process loaded beside
-  /// the exe, and what was injected into it
-  auto modules_outside_system() -> void
+  ///\brief the modules of the process outside the Windows folder (the system folder, the driver store a graphics
+  /// driver loads from and the side-by-side folder are all in it), one a line by their file names: what the process
+  /// loaded beside the exe, and what was injected into it (overlays, security software)
+  auto modules_outside_windows() -> void
     {
-    wchar_t system[MAX_PATH]{};
-    UINT const length{GetSystemDirectoryW(system, MAX_PATH)};
+    wchar_t windows[MAX_PATH]{};
+    UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
     std::vector<HMODULE> modules(1024);
     DWORD needed{};
     if(length == 0 or length >= MAX_PATH
        or not K32EnumProcessModules(GetCurrentProcess(), modules.data(), DWORD(modules.size() * sizeof(HMODULE)),
                                     &needed))
       {
-      say("modules outside the system folder: not read");
+      say("modules outside the Windows folder: not read");
       return;
       }
     modules.resize(std::min<std::size_t>(modules.size(), needed / sizeof(HMODULE)));
-    std::wstring const system_dir{system, length};
+    std::wstring windows_dir{windows, length};
+    if(not windows_dir.ends_with(L'\\'))
+      windows_dir += L'\\';
     HMODULE const exe{GetModuleHandleW(nullptr)};
-    std::string names;
-    int count{};
+    std::vector<std::string> names;
     for(HMODULE const module: modules)
       {
-      std::wstring const dir{edplugin_common::directory_of(edplugin_common::module_path(module))};
-      bool const in_system{
-        CompareStringOrdinal(dir.c_str(), int(dir.size()), system_dir.c_str(), int(system_dir.size()), TRUE)
-        == CSTR_EQUAL};
-      if(module == exe or in_system)
-        continue;
-      (names += names.empty() ? "" : ", ") += context_probe::module_name(module);
-      ++count;
+      std::wstring const path{edplugin_common::module_path(module)};
+      bool const in_windows{path.size() > windows_dir.size()
+                            and CompareStringOrdinal(path.c_str(), int(windows_dir.size()), windows_dir.c_str(),
+                                                     int(windows_dir.size()), TRUE)
+                                  == CSTR_EQUAL};
+      if(module != exe and not in_windows)
+        names.push_back(context_probe::module_name(module));
       }
-    say("modules outside the system folder (besides the exe): %d%s%s", count, count ? ": " : "", names.c_str());
+    say("modules outside the Windows folder (besides the exe): %zu", names.size());
+    for(std::string const & name: names)
+      say("  module %s", name.c_str());
     }
 
   [[nodiscard]]
@@ -177,16 +182,20 @@ namespace
     return changed;
     }
 
-  ///\brief what changed in the context's table since `before`, after `step`, the slots as ranges; the snapshot now
+  ///\brief what changed in the context's table since `before`, after `step` (the line of context_probe 4 as it was,
+  /// then the slots as ranges); the snapshot now
+  [[nodiscard]]
   auto compare(ID3D11DeviceContext * ctx, snapshot_t const & before, char const * step) -> snapshot_t
     {
     snapshot_t const now{take(ctx)};
     auto const changed{differ(before, now)};
     auto const since_start{differ(start, now)};
-    say("  after %s: table pointer %s, entries changed %d of %d (slots %s); %d differ from the start (slots %s)", step,
+    auto const first{std::ranges::find(changed, true)};
+    int const first_slot{first == changed.end() ? -1 : int(first - changed.begin())};
+    say("  after %s: table pointer %s, entries changed %d of %d (first slot %d); %d differ from the start", step,
         now.table == before.table ? "same" : "MOVED", int(std::ranges::count(changed, true)),
-        std::min(before.read, now.read),
-        context_probe::ranges_text(changed).c_str(), int(std::ranges::count(since_start, true)),
+        std::min(before.read, now.read), first_slot, int(std::ranges::count(since_start, true)));
+    say("    slots changed %s; differ from the start %s", context_probe::ranges_text(changed).c_str(),
         context_probe::ranges_text(since_start).c_str());
     return now;
     }
@@ -201,13 +210,15 @@ namespace
     int n{};
     while(n != table_scan and edplugin_common::readable(&table[n], sizeof(void *)) and table[n])
       ++n;
-    if(n < context4_entries or not edplugin_common::readable(table - 2, 2 * sizeof(void *)))
+    // the two words before the table too: the C++ type information
+    auto const * const before{
+      reinterpret_cast<void * const *>(reinterpret_cast<std::uintptr_t>(table) - 2 * sizeof(void *))};
+    if(n < context4_entries or not edplugin_common::readable(before, 2 * sizeof(void *)))
       {
       say("  table pointer test: not done (table of %d entries)", n);
       return;
       }
-    // the two words before the table too: the C++ type information
-    std::memcpy(copy, table - 2, std::size_t(2 + n) * sizeof(void *));
+    std::memcpy(copy, before, std::size_t(2 + n) * sizeof(void *));
     void ** const mine{copy + 2};
     *reinterpret_cast<void ***>(ctx) = mine;
     auto look = [&](char const * step)
@@ -446,14 +457,12 @@ namespace
       deferred->Release();
       }
     (void)compare(ctx, s, "a deferred context made and released");
-    {
     ID3D11Multithread * mt2{};
     if(FAILED(ctx->QueryInterface(__uuidof(ID3D11Multithread), reinterpret_cast<void **>(&mt2))))
       mt2 = nullptr;
     copy_test(ctx, mt2);
     if(mt2)
       mt2->Release();
-    }
     table_facts("device", device, *reinterpret_cast<void ***>(device), context_probe::device_methods);
 
     // a second device at once: its own table, at the same distance from its object?
@@ -474,12 +483,18 @@ namespace
     device->Release();
     }
 
-  ///\brief the adapters DXGI lists, each told, the hardware ones kept (a reference each) for the probe; which one a
-  /// program asking for high performance gets (a game on a laptop with two)
-  [[nodiscard]]
-  auto adapters() -> std::vector<IDXGIAdapter1 *>
+  struct hardware_t
     {
-    std::vector<IDXGIAdapter1 *> hardware;
+    UINT index;              ///< DXGI's
+    IDXGIAdapter1 * adapter;  ///< a reference of its own
+    };
+
+  ///\brief the adapters DXGI lists, each told, the hardware ones kept for the probe; which one a program asking for
+  /// high performance gets (a game on a laptop with two)
+  [[nodiscard]]
+  auto adapters() -> std::vector<hardware_t>
+    {
+    std::vector<hardware_t> hardware;
     using create_t = HRESULT(WINAPI *)(REFIID, void **);
     HMODULE const dxgi{LoadLibraryExW(L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)};
     auto const create{dxgi ? reinterpret_cast<create_t>(
@@ -509,9 +524,17 @@ namespace
         a->Release();
       factory6->Release();
       }
-    IDXGIAdapter1 * a{};
-    for(UINT i{}; factory->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; ++i)
+    for(UINT i{};; ++i)
       {
+      IDXGIAdapter1 * a{};
+      HRESULT const listed{factory->EnumAdapters1(i, &a)};
+      if(listed == DXGI_ERROR_NOT_FOUND)
+        break;
+      if(FAILED(listed))
+        {
+        say("adapters: listing stopped at %u (hr 0x%08lX)", i, static_cast<unsigned long>(listed));
+        break;
+        }
       DXGI_ADAPTER_DESC1 d{};
       if(not a or FAILED(a->GetDesc1(&d)))
         {
@@ -529,7 +552,7 @@ namespace
       if(software)
         a->Release();
       else
-        hardware.push_back(a);
+        hardware.push_back({i, a});
       }
     if(not fast_known)
       say("adapters: which is the high performance one not told (no IDXGIFactory6)");
@@ -553,23 +576,31 @@ auto main() -> int
   else
     {
     say("d3d11.dll from the system folder: yes, version %s", module_version(system_d3d11).c_str());
-    std::vector<IDXGIAdapter1 *> const hardware{adapters()};
+    std::vector<hardware_t> const hardware{adapters()};
     if(hardware.empty())
+      {
+      say("adapters: no hardware one listed; the default adapter (D3D_DRIVER_TYPE_HARDWARE) probed");
       for(UINT const flags: {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)})
         if(not lock_hung)
           probe(nullptr, flags);
-    for(std::size_t i{}; i != hardware.size(); ++i)
+      }
+    for(hardware_t const & h: hardware)
       {
       say("");
-      say("=== adapter %zu of %zu probed", i + 1, hardware.size());
-      for(UINT const flags: {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)})
-        if(not lock_hung)
-          probe(hardware[i], flags);
-      hardware[i]->Release();
+      if(lock_hung)
+        say("=== adapter %u not probed: the runtime's lock hung before", h.index);
+      else
+        {
+        say("=== adapter %u probed", h.index);
+        for(UINT const flags: {0u, UINT(D3D11_CREATE_DEVICE_BGRA_SUPPORT), UINT(D3D11_CREATE_DEVICE_SINGLETHREADED)})
+          if(not lock_hung)
+            probe(h.adapter, flags);
+        }
+      h.adapter->Release();
       }
     }
   say("");
-  modules_outside_system();
+  modules_outside_windows();
   // beside the exe (a long path too)
   std::wstring const exe{edplugin_common::module_path(nullptr)};
   std::wstring const dir{edplugin_common::directory_of(exe)};
