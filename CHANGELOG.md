@@ -28,6 +28,10 @@
   mode for the C++ sources of the library and the targets linking it, with the definition
   `EDPLUGIN_COMMON_UBSAN_TRAP=1`; `test/native` and `tools/test-native.sh`, the headers without a
   Windows header built natively with ASan and UBSan, and with TSan.
+- The module `settings_doc`: `settings_doc` (a plugin's `doc/settings.md` from rows the plugin describes, one
+  template for every plugin: edworld's, with `|`, line ends and `<`, `>` escaped) and `write_settings_doc` (to the
+  file an environment variable names, the result for the plugin's log, `settings_doc_error_name` for an error);
+  never thrown.
 
 ## 1.0.0
 

@@ -76,6 +76,16 @@ License: MIT (see `LICENSE`).
   instruction in the `__try` body itself), so the reads under one are in a function of their own (`names_of`,
   `first_export_with_prefix`), with no object to unwind in the function with the handler, and its filter always
   handles the fault (`EXCEPTION_EXECUTE_HANDLER`): a fault let through a `noexcept` function ends the process.
+- `include/edplugin_common/settings/settings_doc.h` (code in `src/settings_doc.cc`) - a plugin's `doc/settings.md`
+  from its own table of settings, one template for every plugin:
+  - the plugin gives each setting as text: `setting_row_t` (name, default, group as an index, read at the start or
+    while the game runs, range, what it does), and its title, intro and groups in `settings_doc_t`;
+  - `settings_doc(doc, rows)`: the doc, the template byte for byte in the header's comment (by group, the rows read
+    while the game runs first, a table each, `None.` for none); `|`, line ends and `<`, `>` outside code spans
+    escaped; an error for a group out of range, a name twice or an empty name;
+  - `write_settings_doc(variable, doc, rows)`: written to the file the environment variable names (nothing
+    without it); the status, the error, the system's error code and the path come back for the plugin's log.
+  Neither throws. A plugin's `tools/test.sh` sets the variable and compares the file with its `doc/settings.md`.
 - `cmake/clang-cl-msvc-sdk.cmake` - the toolchain: a cross build for 64-bit Windows on Linux with clang-cl and LLVM's
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
@@ -88,8 +98,8 @@ License: MIT (see `LICENSE`).
 - `cmake/get_cpm.cmake` - CPM, which brings stralgo and small_vectors (pinned to their commits).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
-- The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory and shader
-  names) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+- The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory, shader
+  names and settings_doc) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).

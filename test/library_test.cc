@@ -1,7 +1,8 @@
 // The library's test under wine (tools/test.sh): a plain program, without d3d11 or dxgi, linked with the library as
 // a plugin links it. Checked: the library's interface definitions reach the program, stralgo comes with it, and the
 // modules core (locks, once_flag_t), text (wide, utf8, as_unsigned, try_format_into), log and state_log_t
-// (test/log_test.cc), and paths, file, memory, shader and dxgi (test/modules_test.cc).
+// (test/log_test.cc), paths, file, memory, shader and dxgi (test/modules_test.cc), and settings_doc
+// (test/settings_doc_test.cc).
 #include <edplugin_common/core/lock.h>
 #include <edplugin_common/core/once_flag.h>
 #include <edplugin_common/text/format.h>
@@ -21,6 +22,8 @@ using namespace std::string_view_literals;
 auto log_tests(void (*checker)(bool ok, char const * what)) -> void;
 // test/modules_test.cc
 auto modules_tests(void (*checker)(bool ok, char const * what)) -> void;
+// test/settings_doc_test.cc
+auto settings_doc_tests(void (*checker)(bool ok, char const * what)) -> void;
 
 namespace
   {
@@ -236,6 +239,7 @@ auto main() -> int
   plugin_like::texts();
   log_tests(check);
   modules_tests(check);
+  settings_doc_tests(check);
 
   std::printf(failures ? "FAILED (%d failure(s))\n" : "PASSED (%d failure(s))\n", failures);
   return failures ? 1 : 0;
