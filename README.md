@@ -170,20 +170,25 @@ License: MIT (see `LICENSE`).
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).
 - `tools/context_probe/` - `context_probe.exe`, a diagnosis run by hand on Windows, without the game (a player's
-  computer, a VM): on each hardware adapter and on the default device (no adapter given), where the D3D11 runtime
-  keeps the method tables of a device and of its immediate context, which of the context's slots the runtime rewrites
+  computer, a VM): on each hardware adapter and on the default device (no adapter given), where the D3D11 runtime keeps
+  the method tables of a device and of its immediate context, which of the context's slots the runtime rewrites
   (multithread protection, `ClearState`), which entries lie outside the system d3d11 and where their trampolines lead
-  (`module+offset`), which entries in the system d3d11 start with a jump out of it (an inline hook), and the
-  process's modules outside the Windows folder (what was injected into it; a graphics driver's driver store is inside
-  it). Every table is read as a copy, under `__try`. It makes no window and no swap chain: an overlay that hooks only a
-  game, or only at `Present`, is not seen. The lines go to `context_probe.txt` beside it; a player's instructions in
-  `README.txt` there. The decoding of jumps and the methods' names by slot (`jump.h`, `slots.h`) need no Windows
-  header. Built at the top level with `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its test with
-  `EDPLUGIN_COMMON_TESTS` too); `tools/context_probe/package.sh <build directory> <output directory>` makes the zip a
-  player gets (the exe, its `README.txt`, its sources, the library's sources it uses, `LICENSE`, `SOURCE.txt` with the
-  library's commit and `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it stops at a
-  build other than Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older than a
-  source.
+  (`module+offset`), which entries in the system d3d11 start with a jump out of it (an inline hook), and the process's
+  modules outside the Windows folder (what was injected into it; a graphics driver's driver store is inside it). Then,
+  on each device with no flags, a flip model swap chain (BGRA8, two buffers) on a window that is never shown and four
+  `Present(0, 0)` without drawing, each on a thread of its own with a time limit: after the swap chain is made, after
+  the first and after the last `Present` the swap chain's table (entries outside the system dxgi, entries in it that
+  start with a jump out of it), the slots of the device's and the context's tables changed since before the swap chain
+  with where they lead, and the modules outside the Windows folder that came, for an overlay that hooks only at the swap
+  chain or at `Present`. Every table is read as a copy, under `__try`. It is not the game: an overlay that hooks only a
+  game it knows (by its exe) is not seen. The lines go to `context_probe.txt` beside it; a player's instructions in
+  `README.txt` there. The decoding of jumps, the methods' names by slot and the comparison of two reads (`jump.h`,
+  `slots.h`) need no Windows header. Built at the top level with `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its
+  test with `EDPLUGIN_COMMON_TESTS` too); `tools/context_probe/package.sh <build directory> <output directory>` makes
+  the zip a player gets (the exe, its `README.txt`, its sources, the library's sources it uses, `LICENSE`, `SOURCE.txt`
+  with the library's commit and `SHA256SUMS.txt`) and prints the zip's checksum, to be posted apart from the zip; it
+  stops at a build other than Release, at `EDPLUGIN_COMMON_UBSAN_TRAP`, at changes not committed and at an exe older
+  than a source.
 - `tools/event_report/` - `event_report.exe`, run by hand on a player's Windows: the game's and its launcher's crashes
   and hangs (the Application log: Application Error 1000, Application Hang 1002, .NET Runtime 1026, Windows Error
   Reporting 1001; its LiveKernelEvent of graphics codes with the graphics, others apart, one noted twice within 2 s
@@ -323,11 +328,12 @@ nested guard), the codes that are no fault, `guard_t`'s limit and handler, a fau
 started again, the log batch ended by a fault and by a C++ exception, a fault in the log's own write last, and the guard's cost on
 the CPU printed; the stack overflows are skipped under wine, which ends such a thread instead of raising the
 exception, so they are checked on Windows only) and, when built,
-`context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, and the read
-under `__try` on a page that cannot be read; run when the build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE`
-and `EDPLUGIN_COMMON_TESTS` on), and `event_report_test.exe` with `test/event_report_test.sh` (when it has
-`EDPLUGIN_COMMON_EVENT_REPORT` and `EDPLUGIN_COMMON_TESTS` on; the latter in a wine prefix of its own) under wine, each
-in a new directory under the scratch directory, and prints `PASSED` or `FAILED`.
+`context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, the read under
+`__try` on a page that cannot be read, and the hidden window, told as skipped under a wine with no display; run when the
+build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE` and `EDPLUGIN_COMMON_TESTS` on), and `event_report_test.exe`
+with `test/event_report_test.sh` (when it has `EDPLUGIN_COMMON_EVENT_REPORT` and `EDPLUGIN_COMMON_TESTS` on; the latter
+in a wine prefix of its own) under wine, each in a new directory under the scratch directory, and prints `PASSED` or
+`FAILED`.
 One wine run is limited to `WINE_COMMON_TIMEOUT` seconds (600 unless set). The CMake option
 `EDPLUGIN_COMMON_TESTS` (ON by default) turns the test program off.
 

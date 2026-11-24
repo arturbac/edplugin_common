@@ -32,12 +32,14 @@
   template for every plugin: edworld's, with `|`, line ends and `<`, `>` escaped) and `write_settings_doc` (to the
   file an environment variable names, the result for the plugin's log, `settings_doc_error_name` for an error);
   never thrown.
-- `tools/context_probe/`: `context_probe.exe` 5, after the probe edworld used on other Windows: every hardware adapter
+- `tools/context_probe/`: `context_probe.exe` 6, after the probe edworld used on other Windows: every hardware adapter
   (the default and the high performance one named) and the default device, the slots the runtime rewrites, each
   table entry outside the system d3d11 with its method's name and the module its trampoline leads to, the entries in
-  the system d3d11 that start with a jump out of it, the process's modules outside the Windows folder; tables read as
-  copies under `__try`; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps in `test/native`;
-  `tools/context_probe/package.sh` for the zip a player gets (Release only, from a committed tree).
+  the system d3d11 that start with a jump out of it, the process's modules outside the Windows folder; then a swap
+  chain on a window never shown and a few `Present` without drawing, after each step the swap chain's table, the
+  device's and the context's slots changed since before it and the modules that came; tables read as copies under
+  `__try`; `context_probe_test.exe` in `tools/test.sh`, the decoding of jumps and the comparison of reads in
+  `test/native`; `tools/context_probe/package.sh` for the zip a player gets (Release only, from a committed tree).
 - The module `guard`: `run_guarded` / `run_guarded_call` (a body under a fault handler, C++ exceptions caught too,
   the stack's guard page set again after an overflow, the library's locks the body still held let go after a fault,
   the thread's log batch ended after a fault or a C++ exception), `fault_line`, `guard_t` (a part with a limit of

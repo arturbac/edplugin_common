@@ -1,16 +1,20 @@
-// context_probe 5 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
+// context_probe 6 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
 // method tables of a device and of its immediate context, whether it rewrites their entries, and what else in the
 // process changed them. It loads d3d11.dll and dxgi.dll from the system folder only, makes devices on every hardware
 // adapter (no flags, BGRA support, single-threaded) and one with no adapter given, reads their tables, takes a
 // snapshot of the context's entries around a few calls of the runtime, follows the entries that lie outside the system
 // d3d11 to the module they lead to, tells the entries in the system d3d11 whose code starts with a jump out of it (an
-// inline hook), and lists the process's modules outside the Windows folder (what was injected into it). The lines go
-// to context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
-// name and no path in the output. Without a window and a swap chain, and in a process that is not the game: an
-// overlay that hooks only a game, or only at Present, is not seen. Every table is read as a copy, under __try.
+// inline hook), and lists the process's modules outside the Windows folder (what was injected into it). Then, with one
+// set of flags on each device, a swap chain on a window that is never shown and a few Present(0, 0) without drawing,
+// as a game's start: after each step the swap chain's table, what changed in the device's and the context's tables
+// and which modules came, for an overlay that hooks only at the swap chain or at Present. The lines go to
+// context_probe.txt beside the exe and to the console. Nothing is drawn, nothing sent anywhere; no user or computer
+// name and no path in the output. In a process that is not the game: an overlay that hooks only a game it knows by
+// its exe is not seen. Every table is read as a copy, under __try.
 #include "follow.h"
 #include "jump.h"
 #include "slots.h"
+#include "window.h"
 
 #include <edplugin_common/file/file.h>
 #include <edplugin_common/memory/memory.h>
@@ -53,9 +57,10 @@ namespace
     }
 
   HMODULE system_d3d11{};
+  HMODULE system_dxgi{};
   /// how far a table is followed (the runtime's tables on Windows reach past the 256 a plugin's copy stops at)
   constexpr int table_scan{2048};
-  /// entries outside the system d3d11 told one by one, at most
+  /// entries outside a table's system module told one by one, at most
   constexpr int foreign_lines{16};
   PFN_D3D11_CREATE_DEVICE create_device{};
 
@@ -108,11 +113,13 @@ namespace
     return name;
     }
 
-  ///\brief the modules of the process outside the Windows folder (the system folder, the driver store a graphics
-  /// driver loads from and the side-by-side folder are all in it), one a line by their file names: what the process
-  /// loaded beside the exe, and what was injected into it (overlays, security software)
-  auto modules_outside_windows() -> void
+  ///\brief the file names of the process's modules outside the Windows folder (the system folder, the driver store a
+  /// graphics driver loads from and the side-by-side folder are all in it), besides the exe: what the process loaded
+  /// beside the exe, and what was injected into it (overlays, security software); false when the list could not be read
+  [[nodiscard]]
+  auto outside_windows(std::vector<std::string> & names) -> bool
     {
+    names.clear();
     wchar_t windows[MAX_PATH]{};
     UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
     // the list, again with a larger buffer while the process holds more modules than it (a few tries: modules may
@@ -129,10 +136,7 @@ namespace
       modules.resize(needed / sizeof(HMODULE) + 64);
       }
     if(not listed)
-      {
-      say("modules outside the Windows folder: not read");
-      return;
-      }
+      return false;
     if(needed > modules.size() * sizeof(HMODULE))
       say("modules: the first %zu of %zu", modules.size(), std::size_t(needed / sizeof(HMODULE)));
     modules.resize(std::min<std::size_t>(modules.size(), needed / sizeof(HMODULE)));
@@ -140,7 +144,6 @@ namespace
     if(not windows_dir.ends_with(L'\\'))
       windows_dir += L'\\';
     HMODULE const exe{GetModuleHandleW(nullptr)};
-    std::vector<std::string> names;
     for(HMODULE const module: modules)
       {
       std::wstring const path{edplugin_common::module_path(module)};
@@ -151,18 +154,30 @@ namespace
       if(module != exe and not in_windows)
         names.push_back(context_probe::module_name(module));
       }
+    return true;
+    }
+
+  ///\brief outside_windows, one a line
+  auto modules_outside_windows() -> void
+    {
+    std::vector<std::string> names;
+    if(not outside_windows(names))
+      {
+      say("modules outside the Windows folder: not read");
+      return;
+      }
     say("modules outside the Windows folder (besides the exe): %zu", names.size());
     for(std::string const & name: names)
       say("  module %s", name.c_str());
     }
 
   [[nodiscard]]
-  auto same(ID3D11DeviceContext * ctx, REFIID id) -> char const *
+  auto same(IUnknown * object, REFIID id) -> char const *
     {
     void * other{};
-    if(FAILED(ctx->QueryInterface(id, &other)) or not other)
+    if(FAILED(object->QueryInterface(id, &other)) or not other)
       return "none";
-    char const * const answer{other == static_cast<void *>(ctx) ? "same pointer" : "other pointer"};
+    char const * const answer{other == static_cast<void *>(object) ? "same pointer" : "other pointer"};
     static_cast<IUnknown *>(other)->Release();
     return answer;
     }
@@ -288,12 +303,13 @@ namespace
                                     : "other";
     }
 
-  ///\brief a table's place and length, how many of its entries lie in the system d3d11, each of its named entries
-  /// that does not (up to foreign_lines) with where it leads, and each named entry in the system d3d11 whose code
-  /// starts with a jump out of it (up to foreign_lines); the table read once, as a copy
+  ///\brief a table's place and length, how many of its entries lie in the system module it belongs to (`system`, named
+  /// `system_name`: d3d11, or dxgi for a swap chain), each of its named entries that does not (up to foreign_lines)
+  /// with where it leads, and each named entry in it whose code starts with a jump out of it (up to foreign_lines); the
+  /// table read once, as a copy
   template<std::size_t n>
-  auto table_facts(char const * what, void * object, void ** table, std::array<std::string_view, n> const & names)
-    -> void
+  auto table_facts(char const * what, void * object, void ** table, std::array<std::string_view, n> const & names,
+                   HMODULE system = system_d3d11, char const * system_name = "d3d11") -> void
     {
     auto const offset{reinterpret_cast<std::intptr_t>(table) - reinterpret_cast<std::intptr_t>(object)};
     DWORD protect{}, object_protect{};
@@ -318,36 +334,37 @@ namespace
     int const to_null{int(std::ranges::find(entries, nullptr) - entries.begin())};
     int const to_code{int(std::ranges::find_if(entries, [](void * e) { return not edplugin_common::executable(e); })
                           - entries.begin())};
-    // the prefix whose entries are all the system d3d11's
-    int d3d11_prefix{};
-    while(d3d11_prefix != to_null and edplugin_common::module_of(entry(d3d11_prefix)) == system_d3d11)
-      ++d3d11_prefix;
-    int in_d3d11{}, in_other{}, in_none{};
+    // the prefix whose entries are all the system module's
+    int system_prefix{};
+    while(system_prefix != to_null and edplugin_common::module_of(entry(system_prefix)) == system)
+      ++system_prefix;
+    int in_system{}, in_other{}, in_none{};
     for(int i{}; i != std::min(to_null, 96); ++i)
       {
       HMODULE const m{edplugin_common::module_of(entry(i))};
-      ++(m == nullptr ? in_none : m == system_d3d11 ? in_d3d11 : in_other);
+      ++(m == nullptr ? in_none : m == system ? in_system : in_other);
       }
-    say("%s: table entries %d to the first null, %d to the first not code, %d all in the system d3d11 (followed up to "
-        "%d); first 96: system d3d11 %d, other module %d, no module %d",
-        what, to_null, to_code, d3d11_prefix, table_scan, in_d3d11, in_other, in_none);
-    // each named entry outside the system d3d11: its method, where it lies, and where its jumps lead; each one in it
+    say("%s: table entries %d to the first null, %d to the first not code, %d all in the system %s (followed up to "
+        "%d); first 96: system %s %d, other module %d, no module %d",
+        what, to_null, to_code, system_prefix, system_name, table_scan, system_name, in_system, in_other, in_none);
+    // each named entry outside the system module: its method, where it lies, and where its jumps lead; each one in it
     // whose first instruction jumps out of it
     int told{}, foreign{}, hooks_told{}, hooks{};
     for(int i{}; i != std::min(to_null, int(n)); ++i)
       {
       std::string const method{context_probe::method_name(names, i)};
       HMODULE const m{edplugin_common::module_of(entry(i))};
-      if(m == system_d3d11)
+      if(m == system)
         {
-        std::string const out_of{context_probe::jump_out_of(entry(i), system_d3d11)};
+        std::string const out_of{context_probe::jump_out_of(entry(i), system)};
         if(out_of.empty())
           continue;
         ++hooks;
         if(hooks_told == foreign_lines)
           continue;
         ++hooks_told;
-        say("  %s slot %d %s: in the system d3d11, its code jumps out: %s", what, i, method.c_str(), out_of.c_str());
+        say("  %s slot %d %s: in the system %s, its code jumps out: %s", what, i, method.c_str(), system_name,
+            out_of.c_str());
         continue;
         }
       ++foreign;
@@ -359,8 +376,8 @@ namespace
       say("  %s slot %d %s: %s%s", what, i, method.c_str(), lies.c_str(), leads.c_str());
       }
     if(foreign > told)
-      say("  %s: %d more entries outside the system d3d11 not told", what, foreign - told);
-    say("%s: named entries in the system d3d11 whose code starts with a jump out of it: %d%s", what, hooks,
+      say("  %s: %d more entries outside the system %s not told", what, foreign - told, system_name);
+    say("%s: named entries in the system %s whose code starts with a jump out of it: %d%s", what, system_name, hooks,
         hooks > hooks_told ? " (the first told)" : "");
     }
 
@@ -404,6 +421,14 @@ namespace
     }
 
   bool lock_hung{};
+  bool present_hung{};  ///< a Present that did not come back: the device and DXGI are held by its thread
+
+  ///\brief why no more devices are made: the line's end after "not probed: "; nullptr when nothing hung
+  [[nodiscard]]
+  auto hung() -> char const *
+    {
+    return lock_hung ? "the runtime's lock hung before" : present_hung ? "a Present hung before" : nullptr;
+    }
 
   ///\brief a device on `adapter` (the default one for nullptr)
   [[nodiscard]]
@@ -428,6 +453,203 @@ namespace
       a->Release();
     if(dxgi)
       dxgi->Release();
+    }
+
+  ///\brief a COM reference released with the object
+  template<class com_t>
+  struct ref_t
+    {
+    com_t * p{};
+
+    ref_t() = default;
+    ref_t(ref_t const &) = delete;
+    auto operator=(ref_t const &) -> ref_t & = delete;
+
+    ~ref_t()
+      {
+      if(p)
+        p->Release();
+      }
+
+    [[nodiscard]]
+    auto put() noexcept -> void **
+      {
+      return reinterpret_cast<void **>(&p);
+      }
+    };
+
+  /// the entries of ID3D11Device5 (with IUnknown)
+  constexpr int device5_entries{static_cast<int>(context_probe::device_methods.size())};
+  static_assert(device5_entries == 69);
+
+  ///\brief `chain`'s Present(0, 0), on a thread of its own with a timeout: a Present that hangs (an overlay, a driver)
+  /// holds that thread, not the probe; the Present's hr, or nothing when it did not come back in 10 s
+  [[nodiscard]]
+  auto present_in_time(IDXGISwapChain1 * chain, HRESULT & hr) -> bool
+    {
+    struct work_t
+      {
+      IDXGISwapChain1 * chain;
+      HRESULT hr;
+      };
+    // static: a thread still running after the wait writes it later, when this frame is gone
+    static work_t work;
+    work = {chain, E_PENDING};
+    HANDLE const thread{CreateThread(nullptr, 0,
+                                     [](void * p) -> DWORD
+                                       {
+                                       auto & w{*static_cast<work_t *>(p)};
+                                       w.hr = w.chain->Present(0, 0);
+                                       return 0;
+                                       },
+                                     &work, 0, nullptr)};
+    if(not thread)
+      {
+      hr = HRESULT_FROM_WIN32(GetLastError());
+      return true;
+      }
+    DWORD const waited{WaitForSingleObject(thread, 10000)};
+    CloseHandle(thread);
+    if(waited != WAIT_OBJECT_0)
+      return false;
+    hr = work.hr;
+    return true;
+    }
+
+  ///\brief what changed in a table since `before` (read as a copy before the swap chain), each changed named slot with
+  /// where it leads now (up to foreign_lines)
+  template<std::size_t n>
+  auto table_since(char const * what, void ** table_before, std::vector<void *> const & before, void * object,
+                   std::array<std::string_view, n> const & names) -> void
+    {
+    void ** const table{*reinterpret_cast<void ***>(object)};
+    std::vector<void *> const now{context_probe::read_entries(table, int(n))};
+    std::vector<bool> const changed{context_probe::slots_differ(before, now)};
+    int const count{int(std::ranges::count(changed, true))};
+    say("    %s: table pointer %s, slots changed since before the swap chain %d of %d: %s", what,
+        table == table_before ? "same" : "MOVED", count, int(std::max(before.size(), now.size())),
+        context_probe::ranges_text(changed).c_str());
+    int told{};
+    for(std::size_t i{}; i != changed.size() and i != now.size(); ++i)
+      {
+      if(not changed[i])
+        continue;
+      if(told == foreign_lines)
+        {
+        say("      %s: %d more changed slots not told", what, count - told);
+        break;
+        }
+      ++told;
+      HMODULE const m{edplugin_common::module_of(now[i])};
+      std::string const lies{context_probe::where(now[i])};
+      std::string const leads{m ? std::string{} : "; " + context_probe::follow_jumps(now[i])};
+      say("      %s slot %zu %s: %s%s", what, i, std::string{context_probe::method_name(names, int(i))}.c_str(),
+          lies.c_str(), leads.c_str());
+      }
+    }
+
+  ///\brief a swap chain as a game makes one at its start (a flip model on a window, BGRA8, two buffers) and a few
+  /// Present(0, 0) without drawing: after each step the swap chain's table, what changed in the device's and the
+  /// context's tables since before it, and the modules outside the Windows folder that came (an overlay that hooks only
+  /// at the swap chain or at Present). The window is never shown; the swap chain and the window are released on every
+  /// way out but a hung Present (its thread holds them)
+  auto swap_chain_step(ID3D11Device * device, ID3D11DeviceContext * ctx) -> void
+    {
+    say("");
+    say("swap chain: on a window never shown, flip model, BGRA8, 2 buffers, %dx%d; Present(0, 0) without drawing",
+        context_probe::hidden_window_t::width, context_probe::hidden_window_t::height);
+    // the state before it
+    void ** const ctx_table{*reinterpret_cast<void ***>(ctx)};
+    std::vector<void *> const ctx_before{context_probe::read_entries(ctx_table, context4_entries)};
+    void ** const device_table{*reinterpret_cast<void ***>(device)};
+    std::vector<void *> const device_before{context_probe::read_entries(device_table, device5_entries)};
+    std::vector<std::string> modules_before;
+    bool const modules_known{outside_windows(modules_before)};
+
+    context_probe::hidden_window_t const window;
+    if(not window.handle())
+      {
+      say("swap chain: not made, no window (error %lu)", static_cast<unsigned long>(window.error()));
+      return;
+      }
+    // the factory that made the device's adapter: a swap chain from another one is refused
+    ref_t<IDXGIDevice> dxgi;
+    ref_t<IDXGIAdapter> adapter;
+    ref_t<IDXGIFactory2> factory;
+    if(FAILED(device->QueryInterface(__uuidof(IDXGIDevice), dxgi.put())) or not dxgi.p
+       or FAILED(dxgi.p->GetAdapter(&adapter.p)) or not adapter.p
+       or FAILED(adapter.p->GetParent(__uuidof(IDXGIFactory2), factory.put())) or not factory.p)
+      {
+      say("swap chain: not made, no IDXGIFactory2 from the device's adapter");
+      return;
+      }
+    DXGI_SWAP_CHAIN_DESC1 d{};
+    d.Width = UINT(context_probe::hidden_window_t::width);
+    d.Height = UINT(context_probe::hidden_window_t::height);
+    d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    d.SampleDesc.Count = 1;
+    d.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    d.BufferCount = 2;
+    d.Scaling = DXGI_SCALING_STRETCH;
+    d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    d.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+    // the chain: on every way out released before the window (declared after it)
+    ref_t<IDXGISwapChain1> chain;
+    HRESULT hr{factory.p->CreateSwapChainForHwnd(device, window.handle(), &d, nullptr, nullptr, &chain.p)};
+    say("swap chain: flip discard hr 0x%08lX", static_cast<unsigned long>(hr));
+    if(FAILED(hr) or not chain.p)
+      {
+      // Windows before 10 has no flip discard
+      d.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+      hr = factory.p->CreateSwapChainForHwnd(device, window.handle(), &d, nullptr, nullptr, &chain.p);
+      say("swap chain: flip sequential hr 0x%08lX", static_cast<unsigned long>(hr));
+      if(FAILED(hr) or not chain.p)
+        return;
+      }
+    say("swap chain interfaces: IDXGISwapChain2 %s, 3 %s, 4 %s", same(chain.p, __uuidof(IDXGISwapChain2)),
+        same(chain.p, __uuidof(IDXGISwapChain3)), same(chain.p, __uuidof(IDXGISwapChain4)));
+
+    auto const step = [&](char const * after)
+      {
+      say("swap chain, after %s:", after);
+      table_facts("  swap chain", chain.p, *reinterpret_cast<void ***>(chain.p), context_probe::swap_chain_methods,
+                  system_dxgi, "dxgi");
+      table_since("immediate context", ctx_table, ctx_before, ctx, context_probe::context_methods);
+      table_since("device", device_table, device_before, device, context_probe::device_methods);
+      std::vector<std::string> modules;
+      if(not modules_known or not outside_windows(modules))
+        {
+        say("    modules outside the Windows folder: not read");
+        return;
+        }
+      std::vector<std::string> const gained{context_probe::names_gained(modules_before, modules)};
+      say("    modules outside the Windows folder: %zu, %zu came since before the swap chain", modules.size(),
+          gained.size());
+      for(std::string const & name: gained)
+        say("      module came %s", name.c_str());
+      };
+    window.pump();
+    step("the swap chain made");
+    constexpr int presents{4};
+    for(int i{1}; i <= presents; ++i)
+      {
+      HRESULT present{};
+      if(not present_in_time(chain.p, present))
+        {
+        present_hung = true;
+        chain.p = nullptr;  // held by the hung thread: neither released nor used
+        say("swap chain: Present %d did not come back in 10 s; nothing more with this device", i);
+        return;
+        }
+      window.pump();
+      say("swap chain: Present %d hr 0x%08lX", i, static_cast<unsigned long>(present));
+      if(i == 1 or i == presents)
+        step(i == 1 ? "the first Present" : "the last Present");
+      }
+    // after the Presents: the device's and the context's own facts again (an inline hook in the system d3d11 too)
+    table_facts("  immediate context after Present", ctx, *reinterpret_cast<void ***>(ctx),
+                context_probe::context_methods);
+    table_facts("  device after Present", device, *reinterpret_cast<void ***>(device), context_probe::device_methods);
     }
 
   auto probe(IDXGIAdapter * adapter, UINT flags) -> void
@@ -517,6 +739,11 @@ namespace
       ctx2->Release();
     if(device2)
       device2->Release();
+    // the swap chain with one set of flags: no flags, as the default device
+    if(flags == 0)
+      swap_chain_step(device, ctx);
+    if(present_hung)
+      return;  // the device is held by the hung Present's thread: neither released nor used
     ctx->Release();
     device->Release();
     }
@@ -613,9 +840,9 @@ namespace
   ///\brief the probe itself, its lines in `out`
   auto run() -> void
     {
-    say("context_probe 5");
-    say("looked at in this program, without a window or a swap chain: an overlay that hooks only a game, or only at "
-        "Present, is not seen here");
+    say("context_probe 6");
+    say("looked at in this program, also with a swap chain on a window never shown: an overlay that hooks only a game "
+        "it knows (by its exe, or started from its launcher) is not seen here");
     windows_version();
     system_d3d11 = LoadLibraryExW(L"d3d11.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     create_device = system_d3d11 ? reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(
@@ -627,12 +854,13 @@ namespace
       return;
       }
     say("d3d11.dll from the system folder: yes, version %s", module_version(system_d3d11).c_str());
+    system_dxgi = LoadLibraryExW(L"dxgi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     std::vector<hardware_t> hardware{adapters()};
     if(hardware.empty())
       {
       say("adapters: no hardware one listed; the default adapter (D3D_DRIVER_TYPE_HARDWARE) probed");
       for(UINT const flags: flag_sets())
-        if(not lock_hung)
+        if(not hung())
           probe(nullptr, flags);
       return;
       }
@@ -649,20 +877,20 @@ namespace
     for(hardware_t const & h: hardware)
       {
       say("");
-      if(lock_hung)
-        say("=== adapter %u not probed: the runtime's lock hung before", h.index);
+      if(hung())
+        say("=== adapter %u not probed: %s", h.index, hung());
       else
         {
         say("=== adapter %u probed", h.index);
         for(UINT const flags: flag_sets())
-          if(not lock_hung)
+          if(not hung())
             probe(h.adapter, flags);
         }
       }
     // what a game gets that names no adapter: the card Windows and the driver's profile choose
     say("");
-    if(lock_hung)
-      say("=== the default device (no adapter given) not probed: the runtime's lock hung before");
+    if(hung())
+      say("=== the default device (no adapter given) not probed: %s", hung());
     else
       {
       say("=== the default device (no adapter given) probed");
@@ -697,8 +925,9 @@ auto main() -> int
   std::printf("press Enter to close\n");
   (void)std::getchar();
   std::fflush(stdout);
-  // a hung thread holds the runtime's lock: the process ends without the modules' detach, which could wait for it
-  if(lock_hung)
+  // a hung thread holds the runtime's lock or a Present: the process ends without the modules' detach, which could
+  // wait for it
+  if(hung())
     TerminateProcess(GetCurrentProcess(), 0);
   ExitProcess(0);
   }

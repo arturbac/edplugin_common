@@ -1,13 +1,18 @@
-// context_probe - the names of the methods in the D3D11 runtime's tables by slot, as the Windows SDK (10.0.26100.0)
-// declares them: ID3D11Device5 (with IUnknown) and ID3D11DeviceContext4 (with IUnknown and ID3D11DeviceChild), and
-// the text of a set of slots. No Windows header: built natively too (test/native).
+// context_probe - the names of the methods in the D3D11 runtime's and DXGI's tables by slot, as the Windows SDK
+// (10.0.26100.0) declares them: ID3D11Device5 (with IUnknown), ID3D11DeviceContext4 (with IUnknown and
+// ID3D11DeviceChild) and IDXGISwapChain4 (with IUnknown, IDXGIObject and IDXGIDeviceSubObject); the text of a set of
+// slots, the slots two reads of a table differ in, and the names a list gained. No Windows header: built natively too
+// (test/native).
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace context_probe
   {
@@ -63,6 +68,16 @@ namespace context_probe
     "TiledResourceBarrier", "IsAnnotationEnabled", "SetMarkerInt", "BeginEventInt", "EndEvent", "Flush1",
     "SetHardwareProtectionState", "GetHardwareProtectionState", "Signal", "Wait"};
 
+  inline constexpr std::array<std::string_view, 41> swap_chain_methods{
+    "QueryInterface", "AddRef", "Release", "SetPrivateData", "SetPrivateDataInterface", "GetPrivateData", "GetParent",
+    "GetDevice", "Present", "GetBuffer", "SetFullscreenState", "GetFullscreenState", "GetDesc", "ResizeBuffers",
+    "ResizeTarget", "GetContainingOutput", "GetFrameStatistics", "GetLastPresentCount", "GetDesc1",
+    "GetFullscreenDesc", "GetHwnd", "GetCoreWindow", "Present1", "IsTemporaryMonoSupported", "GetRestrictToOutput",
+    "SetBackgroundColor", "GetBackgroundColor", "SetRotation", "GetRotation", "SetSourceSize", "GetSourceSize",
+    "SetMaximumFrameLatency", "GetMaximumFrameLatency", "GetFrameLatencyWaitableObject", "SetMatrixTransform",
+    "GetMatrixTransform", "GetCurrentBackBufferIndex", "CheckColorSpaceSupport", "SetColorSpace1", "ResizeBuffers1",
+    "SetHDRMetaData"};
+
   ///\brief a slot's method name in `names`, "?" past its end
   template<std::size_t n>
   [[nodiscard]]
@@ -77,13 +92,19 @@ namespace context_probe
   static_assert(method_name(context_methods, 12) == "DrawIndexed", "ID3D11DeviceContext: DrawIndexed in slot 12");
   static_assert(method_name(context_methods, 148) == "Wait", "ID3D11DeviceContext4: Wait the last");
   static_assert(method_name(context_methods, 149) == "?", "past the end");
+  static_assert(method_name(swap_chain_methods, 8) == "Present", "IDXGISwapChain: Present in slot 8");
+  static_assert(method_name(swap_chain_methods, 13) == "ResizeBuffers", "IDXGISwapChain: ResizeBuffers in slot 13");
+  static_assert(method_name(swap_chain_methods, 22) == "Present1", "IDXGISwapChain1: Present1 in slot 22");
+  static_assert(method_name(swap_chain_methods, 40) == "SetHDRMetaData", "IDXGISwapChain4: SetHDRMetaData the last");
 
-  ///\brief the slots set in `changed` as ranges, "7-9, 12, 14-35"; "none" for none
+  ///\brief the slots set in `changed` (an array or a vector of bool) as ranges, "7-9, 12, 14-35"; "none" for none
+  template<std::ranges::random_access_range range_t>
   [[nodiscard]]
-  inline auto ranges_text(std::span<bool const> changed) -> std::string
+  auto ranges_text(range_t const & changed) -> std::string
     {
+    std::size_t const size{std::size_t(std::ranges::size(changed))};
     std::string text;
-    for(std::size_t i{}; i != changed.size();)
+    for(std::size_t i{}; i != size;)
       {
       if(not changed[i])
         {
@@ -91,7 +112,7 @@ namespace context_probe
         continue;
         }
       std::size_t end{i};
-      while(end + 1 != changed.size() and changed[end + 1])
+      while(end + 1 != size and changed[end + 1])
         ++end;
       if(not text.empty())
         text += ", ";
@@ -101,5 +122,32 @@ namespace context_probe
       i = end + 1;
       }
     return text.empty() ? std::string{"none"} : text;
+    }
+
+  ///\brief the slots in which two reads of a table differ, as many as the longer read; a slot only one read reached
+  /// counts as changed
+  [[nodiscard]]
+  inline auto slots_differ(std::span<void * const> before, std::span<void * const> now) -> std::vector<bool>
+    {
+    std::vector<bool> changed(std::max(before.size(), now.size()));
+    for(std::size_t i{}; i != changed.size(); ++i)
+      changed[i] = i >= before.size() or i >= now.size() or before[i] != now[i];
+    return changed;
+    }
+
+  ///\brief the names in `now` that `before` does not hold, in `now`'s order (a name twice in `now` and once in
+  /// `before` is gained once)
+  [[nodiscard]]
+  inline auto names_gained(std::span<std::string const> before, std::span<std::string const> now)
+    -> std::vector<std::string>
+    {
+    std::vector<std::string> left{before.begin(), before.end()};
+    std::vector<std::string> gained;
+    for(std::string const & name: now)
+      if(auto const at{std::ranges::find(left, name)}; at != left.end())
+        left.erase(at);
+      else
+        gained.push_back(name);
+    return gained;
     }
   }  // namespace context_probe

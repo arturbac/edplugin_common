@@ -24,8 +24,8 @@ cp "$BUILD/edplugin_common_test.exe" "$BUILD/test_exports.dll" "$RUN/"
 rc=0
 wine_common_run "$RUN" "$RUN/out.txt" -- edplugin_common_test.exe || rc=$?
 cat "$RUN/out.txt"
-# tools/context_probe's following of table entries, without d3d11, when the build's configure has it
-# (EDPLUGIN_COMMON_CONTEXT_PROBE and EDPLUGIN_COMMON_TESTS; an exe left from an earlier configure is not run)
+# tools/context_probe's following of table entries and its hidden window, without d3d11, when the build's configure
+# has it (EDPLUGIN_COMMON_CONTEXT_PROBE and EDPLUGIN_COMMON_TESTS; an exe left from an earlier configure is not run)
 probe_rc=0
 if grep -qx 'EDPLUGIN_COMMON_CONTEXT_PROBE:BOOL=ON' "$BUILD/CMakeCache.txt" \
   && grep -qx 'EDPLUGIN_COMMON_TESTS:BOOL=ON' "$BUILD/CMakeCache.txt"; then

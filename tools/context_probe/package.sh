@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The zip a player gets: context_probe.exe from the build directory, README.txt, the probe's own sources, the library's
 # sources it uses (edplugin_common/), the library's LICENSE, SOURCE.txt (the library's commit) and SHA256SUMS.txt over
-# them, in <output dir>/context_probe-5/ and <output dir>/context_probe-5.zip. Nothing else is changed; an output
+# them, in <output dir>/context_probe-6/ and <output dir>/context_probe-6.zip. Nothing else is changed; an output
 # that is there already stops it. It stops too at a build that is not Release, a test build
 # (EDPLUGIN_COMMON_UBSAN_TRAP), a repository with changes not committed, and an exe older than a source of it.
 # Usage: tools/context_probe/package.sh <build dir> <output dir>
@@ -10,9 +10,10 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 BUILD=$(cd "${1:?build dir}" && pwd)
 OUT=$(realpath -m "${2:?output dir}")
-NAME=context_probe-5
+NAME=context_probe-6
 EXE=$BUILD/context_probe.exe
-PROBE=(README.txt context_probe.cc follow.cc follow.h jump.h slots.h context_probe.rc context_probe.manifest)
+PROBE=(README.txt context_probe.cc follow.cc follow.h jump.h slots.h window.cc window.h context_probe.rc
+  context_probe.manifest)
 LIBRARY=(src/memory.cc src/paths.cc src/file.cc include/edplugin_common/memory/memory.h
   include/edplugin_common/paths/paths.h include/edplugin_common/file/file.h)
 command -v zip > /dev/null || { echo "$0: no zip" >&2; exit 1; }

@@ -93,6 +93,24 @@ namespace
     bool const none[]{false, false};
     check(context_probe::ranges_text(none) == "none", "ranges_text: none");
     check(context_probe::method_name(context_probe::context_methods, -1) == "?"sv, "method_name: below 0");
+    check(context_probe::method_name(context_probe::swap_chain_methods, 8) == "Present"sv,
+          "method_name: the swap chain's Present");
+    std::vector<bool> const vector_slots{true, true, false, true};
+    check(context_probe::ranges_text(vector_slots) == "0-1, 3", "ranges_text: a vector of bool");
+
+    int a{}, b{}, c{};
+    std::vector<void *> const before{&a, &b, &c};
+    std::vector<void *> const now{&a, &c, &c, &b};
+    check(context_probe::ranges_text(context_probe::slots_differ(before, now)) == "1, 3",
+          "slots_differ: a changed slot and one only the longer read reached");
+    check(context_probe::ranges_text(context_probe::slots_differ(now, before)) == "1, 3", "slots_differ: either way");
+    check(context_probe::slots_differ({}, {}).empty(), "slots_differ: two empty reads");
+
+    std::vector<std::string> const was{"a.dll", "b.dll", "b.dll"};
+    std::vector<std::string> const is{"b.dll", "c.dll", "b.dll", "b.dll", "a.dll"};
+    check(context_probe::names_gained(was, is) == std::vector<std::string>{"c.dll", "b.dll"},
+          "names_gained: a new name and a name once more, in the order of now");
+    check(context_probe::names_gained(is, was).empty(), "names_gained: none");
     }
   }  // namespace
 

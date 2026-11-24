@@ -2,9 +2,12 @@
 // written into a page of its own lead to a function of kernel32 (or the kernelbase it forwards to), two jumps one after
 // the other are followed, ordinary code and a page that cannot be read stop it, and memory outside every module is
 // told by its kind; a read of a page that cannot be read comes back false (the fault caught, the process goes on), a
-// table is read up to such a page, and a jump out of a module is told from one inside it.
+// table is read up to such a page, and a jump out of a module is told from one inside it. The window for the swap
+// chain is made, never visible, of the client size the swap chain gets, and gone with its object (skipped, and said,
+// under a wine with no display, where no window can be made).
 #include "follow.h"
 #include "jump.h"
+#include "window.h"
 
 #include <edplugin_common/memory/memory.h>
 
@@ -174,6 +177,39 @@ auto main() -> int
   std::string const kernel32{context_probe::module_name(GetModuleHandleW(L"kernel32.dll"))};
   check(_stricmp(kernel32.c_str(), "kernel32.dll") == 0, "module_name: the file name without its folder", kernel32);
   check(context_probe::module_name(nullptr) == "-", "module_name: none", context_probe::module_name(nullptr));
+
+  // the hidden window: made, never visible, its client size, destroyed with the object. Under a wine without a
+  // display (no X server, no Wayland, no null graphics driver set) no window can be made at all: told, not failed
+  HWND made{};
+  DWORD error{};
+    {
+    context_probe::hidden_window_t const window;
+    made = window.handle();
+    error = window.error();
+    if(made)
+      {
+      window.pump();
+      check(not IsWindowVisible(made), "hidden_window_t: never visible", "");
+      RECT client{};
+      bool const sized{GetClientRect(made, &client) != FALSE};
+      std::string const size{std::to_string(client.right - client.left) + "x"
+                             + std::to_string(client.bottom - client.top)};
+      check(sized and client.right - client.left == context_probe::hidden_window_t::width
+              and client.bottom - client.top == context_probe::hidden_window_t::height,
+            "hidden_window_t: the client size", size);
+      }
+    }
+  if(not made and error == ERROR_INVALID_WINDOW_HANDLE)
+    std::printf("skip: hidden_window_t: no window can be made here (error %lu: no display for wine)\n",
+                static_cast<unsigned long>(error));
+  else
+    {
+    check(made != nullptr, "hidden_window_t: made", std::to_string(error));
+    check(made and not IsWindow(made), "hidden_window_t: destroyed with the object", "");
+    // a second one after the first: the class was unregistered and is registered again
+    context_probe::hidden_window_t const again;
+    check(again.handle() != nullptr, "hidden_window_t: a second one after the first", std::to_string(again.error()));
+    }
 
   VirtualFree(closed, 0, MEM_RELEASE);
   VirtualFree(page, 0, MEM_RELEASE);
