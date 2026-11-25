@@ -5,9 +5,12 @@
 - `edplugin_common_version`: the header also has `<macro>_COMMIT` (HEAD's full commit) and `<macro>_BUILD_TIME`
   (`SOURCE_DATE_EPOCH`, else HEAD's commit time, in UTC; `-dirty` as the version), and in a Windows build each
   target gets a version resource (VERSIONINFO): the version text, the target's names, numbers X,Y,Z,K (K the commits
-  after the last tag), PRERELEASE and PRIVATEBUILD flags. No clock of the build in the header or the resource (the
-  linker's time stamp in the dll is apart). `<macro>` and its text are as before. `test/version_test.sh` (in `tools/test.sh`, without wine) checks
-  it, with the resource of the build's `test_exports.dll`.
+  after the last tag), PRERELEASE and PRIVATEBUILD flags, and links reproducibly: the build's time as the time stamp
+  (`/timestamp` from a response file version.cmake writes; `/Brepro` without a time) and `/pdbaltpath:%_PDB%`, so
+  the same code and options give the same file in the same build directory; no clock of the build anywhere.
+  `<macro>` and its text are as before. `test/version_test.sh` (in `tools/test.sh`, without wine) checks it, with
+  the resource of the build's `test_exports.dll`; `test/reproducible_test.sh` builds a dll twice and compares the
+  files and their time stamp.
 - event_report: `--around <UTC date or time>` (`2026-11-19` the whole day, `2026-11-19T16:06` with `--minutes` either
   side, 60 unless given; up to 16) shows only the entries, saved reports and dumps of those times, for a helper who
   knows when a session ended (before, only the newest 20 of each kind over 30 days); without it the report is as

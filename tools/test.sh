@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # edplugin_common's test without the game, in new directories under the scratch dir: test/pin_test.sh (cmake/pin.cmake
 # with git, without wine), test/version_test.sh (cmake/version.cmake with git, and the version resource of the build's
-# test_exports.dll, without wine), test/proxy_exports_test.sh (edplugin_common_proxy_exports, without wine), then
+# test_exports.dll, without wine), test/reproducible_test.sh (the same dll from two links, its time stamp, without
+# wine), test/proxy_exports_test.sh (edplugin_common_proxy_exports, without wine), then
 # test/library_test.cc and, when built, tools/context_probe's test (context_probe_test.exe, no d3d11) and
 # tools/event_report's (event_report_test.exe, and event_report.exe as a player runs it, in a prefix of its own by
 # test/event_report_test.sh) under wine.
@@ -19,6 +20,9 @@ pin_rc=0
 "$HERE/../test/pin_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-pin)" || pin_rc=$?
 version_rc=0
 "$HERE/../test/version_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-version)" "$BUILD" || version_rc=$?
+reproducible_rc=0
+"$HERE/../test/reproducible_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-reproducible)" "$BUILD" \
+  || reproducible_rc=$?
 exports_rc=0
 "$HERE/../test/proxy_exports_test.sh" "$(wine_common_run_dir "$SCR" edplugin_common-proxy-exports)" || exports_rc=$?
 wine_common_prefix EDPLUGIN_COMMON_WINEPREFIX
@@ -60,11 +64,12 @@ if grep -qx 'EDPLUGIN_COMMON_EVENT_REPORT:BOOL=ON' "$BUILD/CMakeCache.txt" \
   fi
 fi
 # the first failure's code: the wine run's, then context_probe_test's, event_report's, pin_test's, version_test's,
-# proxy_exports_test's
+# reproducible_test's, proxy_exports_test's
 ((rc != 0 || probe_rc == 0)) || rc=$probe_rc
 ((rc != 0 || report_rc == 0)) || rc=$report_rc
 ((rc != 0 || pin_rc == 0)) || rc=$pin_rc
 ((rc != 0 || version_rc == 0)) || rc=$version_rc
+((rc != 0 || reproducible_rc == 0)) || rc=$reproducible_rc
 ((rc != 0 || exports_rc == 0)) || rc=$exports_rc
 echo "=== overall: $([[ $rc -eq 0 ]] && echo PASSED || echo FAILED) (exit code $rc, run directory $RUN)"
 exit $rc

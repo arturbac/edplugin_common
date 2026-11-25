@@ -7,14 +7,19 @@
 # to the plugin's version, <macro>_COMMIT to its full commit and <macro>_BUILD_TIME to its time (version.cmake, at
 # every build), forced into the C++ sources of each target (not into MASM sources); with the resource compiler (a
 # Windows build) each exe or dll target gets the version resource <build>/gen/<target>_version.rc as a source (a
-# static library would lose it at its link); the custom target
-# is named after the header without its extension
+# static library would lose it at its link) and links reproducibly: its time stamp the build's time (<macro>_BUILD_TIME
+# without "-dirty") by lld-link's /timestamp in the response file <build>/gen/<header stem>_link.rsp (relinked when it
+# changes; /Brepro, a hash, without a time), its PDB's id a hash of the PDB and /pdbaltpath:%_PDB% (the PDB's file
+# name only, not the build's path), so the same code and options build the same exe or dll in the same build
+# directory (another directory's object paths are in the PDB); the custom target is named after the header without its
+# extension
 function(edplugin_common_version macro header)
   set(gen "${CMAKE_BINARY_DIR}/gen")
   file(MAKE_DIRECTORY "${gen}")
   cmake_path(GET header STEM name)
   set(rc_args "")
   set(rc_files "")
+  set(rc_files_and_rsp "")
   set(targets "")
   get_property(languages GLOBAL PROPERTY ENABLED_LANGUAGES)
   if(RC IN_LIST languages AND ARGN)
@@ -37,18 +42,23 @@ function(edplugin_common_version macro header)
     list(JOIN files "," files)
     list(JOIN types "," types)
     if(targets)
+      set(rsp "${gen}/${name}_link.rsp")
       set(rc_args -DRC_DIR=${gen} -DRC_TARGETS=${rc_targets} -DRC_FILES=${files} -DRC_TYPES=${types}
-                  -DPRODUCT=${PROJECT_NAME})
+                  -DPRODUCT=${PROJECT_NAME} -DLINK_RSP=${rsp})
+      list(APPEND rc_files_and_rsp ${rc_files} "${rsp}")
     endif()
   endif()
   add_custom_target(${name}
     COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${gen}/${header} -DNAME=${macro} ${rc_args}
             -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.cmake
-    BYPRODUCTS "${gen}/${header}" ${rc_files}
+    BYPRODUCTS "${gen}/${header}" ${rc_files_and_rsp}
     COMMENT "${name}"
     VERBATIM)
   foreach(target rc IN ZIP_LISTS targets rc_files)
     target_sources(${target} PRIVATE "${rc}")
+    # the response file holds one option (with clang's GNU-style driver -Xlinker takes its first word only)
+    target_link_options(${target} PRIVATE "LINKER:@${rsp}" "LINKER:/pdbaltpath:%_PDB%")
+    set_property(TARGET ${target} APPEND PROPERTY LINK_DEPENDS "${rsp}")
   endforeach()
   foreach(target IN LISTS ARGN)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")

@@ -33,18 +33,21 @@ HEADER=$GEN/plugin_version.h
 mkdir -p "$PLUGIN" "$GEN"
 
 # version.cmake on a checkout ($1, the plugin unless given) for plugin.dll and plugin_tool.exe: its exit code in $RC,
-# the header's macros in $VERSION, $COMMIT, $TIME_OF, the dll's resource in $RC_DLL, the exe's in $RC_EXE
+# the header's macros in $VERSION, $COMMIT, $TIME_OF, the dll's resource in $RC_DLL, the exe's in $RC_EXE, the link's
+# response file in $RSP
 version()
   {
   RC=0
   cmake -DSRC="${1:-$PLUGIN}" -DOUT="$HEADER" -DNAME=PLUGIN_VERSION -DRC_DIR="$GEN" -DRC_TARGETS=plugin,plugin_tool \
-    -DRC_FILES=plugin.dll,plugin_tool.exe -DRC_TYPES=2,1 -DPRODUCT="${PRODUCT:-plugin}" -P "$VERSION_CMAKE" \
+    -DRC_FILES=plugin.dll,plugin_tool.exe -DRC_TYPES=2,1 -DPRODUCT="${PRODUCT:-plugin}" -DLINK_RSP="$GEN/link.rsp" \
+    -P "$VERSION_CMAKE" \
     > "$RUN/out.txt" 2>&1 || RC=$?
   VERSION=$(sed -n 's/^#define PLUGIN_VERSION "\(.*\)"$/\1/p' "$HEADER")
   COMMIT=$(sed -n 's/^#define PLUGIN_VERSION_COMMIT "\(.*\)"$/\1/p' "$HEADER")
   TIME_OF=$(sed -n 's/^#define PLUGIN_VERSION_BUILD_TIME "\(.*\)"$/\1/p' "$HEADER")
   RC_DLL=$(cat "$GEN/plugin_version.rc")
   RC_EXE=$(cat "$GEN/plugin_tool_version.rc")
+  RSP=$(cat "$GEN/link.rsp")
   }
 # the resource ($1) has the line $2
 has() { grep -qxF -- "$2" <<< "$1"; }
@@ -65,6 +68,7 @@ S1=${C1:0:7}
 version
 check $([[ $RC == 0 && $VERSION == "v0.0.0-$S1" && $COMMIT == "$C1" && $TIME_OF == "$TIME" ]]; echo $?) \
   "before the first tag: 'v0.0.0-$S1', the full commit, the commit's time"
+check $([[ $RSP == /timestamp:1764025925 ]]; echo $?) "the link's time stamp: the commit's time"
 check $(resource "$RC_DLL" "v0.0.0-$S1" 0,0,0,1 0x8; echo $?) "before the first tag: 0,0,0,1 (all commits), PRIVATEBUILD"
 check $(has "$RC_DLL" "FILETYPE 2" && has "$RC_DLL" "      VALUE \"OriginalFilename\", \"plugin.dll\"" \
           && has "$RC_DLL" "      VALUE \"InternalName\", \"plugin\"" && has "$RC_DLL" "      VALUE \"ProductName\", \"plugin\""
@@ -72,13 +76,22 @@ check $(has "$RC_DLL" "FILETYPE 2" && has "$RC_DLL" "      VALUE \"OriginalFilen
 check $(has "$RC_EXE" "FILETYPE 1" && has "$RC_EXE" "      VALUE \"OriginalFilename\", \"plugin_tool.exe\"" \
           && resource "$RC_EXE" "v0.0.0-$S1" 0,0,0,1 0x8; echo $?) "the exe's resource: FILETYPE 1, its file name"
 
-before=$(stat -c %.Y "$HEADER" "$GEN/plugin_version.rc" "$GEN/plugin_tool_version.rc")
+before=$(stat -c %.Y "$HEADER" "$GEN/plugin_version.rc" "$GEN/plugin_tool_version.rc" "$GEN/link.rsp")
 version
-check $([[ $(stat -c %.Y "$HEADER" "$GEN/plugin_version.rc" "$GEN/plugin_tool_version.rc") == "$before" ]]; echo $?) \
-  "a second run without a change leaves the header and the resources alone"
+check $([[ $(stat -c %.Y "$HEADER" "$GEN/plugin_version.rc" "$GEN/plugin_tool_version.rc" "$GEN/link.rsp") == "$before" ]]
+        echo $?) "a second run without a change leaves the header, the resources and the response file alone"
 
 SOURCE_DATE_EPOCH=0 version
-check $([[ $RC == 0 && $TIME_OF == 1970-01-01T00:00:00Z ]]; echo $?) "SOURCE_DATE_EPOCH=0: its time, not the commit's"
+check $([[ $RC == 0 && $TIME_OF == 1970-01-01T00:00:00Z && $RSP == /timestamp:0 ]]; echo $?) \
+  "SOURCE_DATE_EPOCH=0: its time, not the commit's, in the header and the link"
+
+SOURCE_DATE_EPOCH=01764025925 version
+check $([[ $RC == 0 && $TIME_OF == "$TIME" && $RSP == /timestamp:1764025925 ]]; echo $?) \
+  "SOURCE_DATE_EPOCH with a leading 0: read as decimal, written without it"
+
+SOURCE_DATE_EPOCH=4294967296 version
+check $([[ $RC == 0 && $TIME_OF == "$TIME" && $RSP == /timestamp:1764025925 ]]; echo $?) \
+  "SOURCE_DATE_EPOCH past 32 bits: the commit's time"
 
 SOURCE_DATE_EPOCH=yesterday version
 check $([[ $RC == 0 && $TIME_OF == "$TIME" ]]; echo $?) "SOURCE_DATE_EPOCH not a number: the commit's time"
@@ -94,6 +107,7 @@ version
 check $([[ $RC == 0 && $VERSION == "v0.0.0-$S1-dirty" && $TIME_OF == "$TIME-dirty" ]] \
           && resource "$RC_DLL" "v0.0.0-$S1-dirty" 0,0,0,1 0x8; echo $?) \
   "uncommitted changes: '-dirty' on the version and the time, PRIVATEBUILD"
+check $([[ $RSP == /timestamp:1764025925 ]]; echo $?) "uncommitted changes: the link's time stamp the commit's time"
 g -C "$PLUGIN" checkout -q -- file.txt
 
 g -C "$PLUGIN" tag v1.2.2
@@ -141,11 +155,13 @@ check $(has "$RC_DLL" '      VALUE "ProductName", "a ""quoted"" na??me"'; echo $
 
 mkdir "$RUN/no-git"
 version "$RUN/no-git"
-check $([[ $RC == 0 && $VERSION == dev && $COMMIT == unknown && $TIME_OF == unknown ]] \
-          && resource "$RC_DLL" dev 0,0,0,0 0x8; echo $?) "outside git: 'dev', 'unknown', 'unknown', 0,0,0,0, PRIVATEBUILD"
+check $([[ $RC == 0 && $VERSION == dev && $COMMIT == unknown && $TIME_OF == unknown && $RSP == /Brepro ]] \
+          && resource "$RC_DLL" dev 0,0,0,0 0x8; echo $?) \
+  "outside git: 'dev', 'unknown', 'unknown', 0,0,0,0, PRIVATEBUILD, the link by /Brepro"
 
 SOURCE_DATE_EPOCH=1764025925 version "$RUN/no-git"
-check $([[ $RC == 0 && $TIME_OF == "$TIME" ]]; echo $?) "outside git with SOURCE_DATE_EPOCH: its time"
+check $([[ $RC == 0 && $TIME_OF == "$TIME" && $RSP == /timestamp:1764025925 ]]; echo $?) \
+  "outside git with SOURCE_DATE_EPOCH: its time, in the link too"
 
 mkdir "$RUN/header-only"
 RC=0
