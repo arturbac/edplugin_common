@@ -281,7 +281,18 @@ which both drivers take. The library's tests build only when it is the top-level
 - `edplugin_common_version(<macro> <header> <target>...)`: the header `<build>/gen/<header>` with the macro defined
   to the plugin's version, forced into the C++ sources of each target (not into MASM sources): `vX.Y.Z` for a
   release (HEAD on its tag, no uncommitted changes), else `<the last tag>-<short hash>`, with `-dirty` for
-  uncommitted changes; `dev` outside git.
+  uncommitted changes; `dev` outside git. `<macro>_COMMIT` is HEAD's full commit (`unknown` outside git),
+  `<macro>_BUILD_TIME` the build's time in UTC (`2026-11-24T23:12:05Z`): `SOURCE_DATE_EPOCH` from the build's
+  environment when set, else HEAD's commit time, with `-dirty` as the version has it (`unknown` outside git
+  without `SOURCE_DATE_EPOCH`); never the clock (the linker still writes its own time stamp into the dll). In a
+  Windows build each exe or dll target also gets a version resource (`<build>/gen/<target>_version.rc`, a source of the target), which Windows
+  shows in a file's properties and in its crash reports: `FileVersion` and `ProductVersion` the version text,
+  `InternalName` and `FileDescription` the target, `OriginalFilename` its file, `ProductName` the project; the
+  numbers X,Y,Z,K are the last tag's with K the commits after it (0 on the tag; `0,0,0,K` before the first tag or,
+  with a warning, after a tag not `vX.Y.Z`; `0,0,0,0` outside git; a shallow clone without the tag counts as before
+  the first tag); the flag PRERELEASE when that tag is a pre-release (`vX.Y.Z-beta.N`), PRIVATEBUILD (with
+  `PrivateBuild` the version text) for any build that is not a release. The header and each resource are written
+  only when they change.
 - `edplugin_common_warnings(<target>...)`: the warning level of the C++ sources of each target: `/W4` with clang-cl,
   the same `-Wall -Wextra` with the GNU-style driver.
 - `edplugin_common_pin(<target>...)`: at every build, the clone against `edplugin_common.commit`, and the header
@@ -358,7 +369,9 @@ EDPLUGIN_COMMON_WINEPREFIX=<a wine prefix> tools/test.sh build/edplugin_common-r
 Without the network: `CPM_SOURCE_CACHE=<a filled CPM cache>` and `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` at configure.
 
 `tools/test.sh` runs `test/pin_test.sh` (`cmake/pin.cmake` on a library and a plugin repository it makes, with
-git and without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
+git and without wine), `test/version_test.sh` (`cmake/version.cmake` on a plugin repository it makes: the
+header and the version resource of a dll and an exe for each case, and the resource linked into the build's
+`test_exports.dll` by `llvm-readobj` and `strings`, without wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
 d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, the ini's files (made, completed
 by their line ends, UTF-16 and a file that cannot be read left alone, a write that fails part way taken away or cut

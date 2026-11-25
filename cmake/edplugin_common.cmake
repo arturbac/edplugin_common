@@ -4,18 +4,52 @@
 # here, so a script run by cmake -P can include this file (test/proxy_exports_test.sh does).
 
 # edplugin_common_version(<macro> <header file name> <target>...): the header <build>/gen/<header> with <macro> defined
-# to the plugin's version (version.cmake, at every build), forced into the C++ sources of each target (not into
-# MASM sources); the custom target is named after the header without its extension
+# to the plugin's version, <macro>_COMMIT to its full commit and <macro>_BUILD_TIME to its time (version.cmake, at
+# every build), forced into the C++ sources of each target (not into MASM sources); with the resource compiler (a
+# Windows build) each exe or dll target gets the version resource <build>/gen/<target>_version.rc as a source (a
+# static library would lose it at its link); the custom target
+# is named after the header without its extension
 function(edplugin_common_version macro header)
   set(gen "${CMAKE_BINARY_DIR}/gen")
   file(MAKE_DIRECTORY "${gen}")
   cmake_path(GET header STEM name)
+  set(rc_args "")
+  set(rc_files "")
+  set(targets "")
+  get_property(languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+  if(RC IN_LIST languages AND ARGN)
+    set(files "")
+    set(types "")
+    foreach(target IN LISTS ARGN)
+      get_target_property(type ${target} TYPE)
+      if(type STREQUAL "EXECUTABLE")
+        list(APPEND types 1)
+      elseif(type STREQUAL "SHARED_LIBRARY" OR type STREQUAL "MODULE_LIBRARY")
+        list(APPEND types 2)
+      else()
+        continue()
+      endif()
+      list(APPEND targets ${target})
+      list(APPEND rc_files "${gen}/${target}_version.rc")
+      list(APPEND files "$<TARGET_FILE_NAME:${target}>")
+    endforeach()
+    list(JOIN targets "," rc_targets)
+    list(JOIN files "," files)
+    list(JOIN types "," types)
+    if(targets)
+      set(rc_args -DRC_DIR=${gen} -DRC_TARGETS=${rc_targets} -DRC_FILES=${files} -DRC_TYPES=${types}
+                  -DPRODUCT=${PROJECT_NAME})
+    endif()
+  endif()
   add_custom_target(${name}
-    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${gen}/${header} -DNAME=${macro}
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${gen}/${header} -DNAME=${macro} ${rc_args}
             -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.cmake
-    BYPRODUCTS "${gen}/${header}"
+    BYPRODUCTS "${gen}/${header}" ${rc_files}
     COMMENT "${name}"
     VERBATIM)
+  foreach(target rc IN ZIP_LISTS targets rc_files)
+    target_sources(${target} PRIVATE "${rc}")
+  endforeach()
   foreach(target IN LISTS ARGN)
     if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
       target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/FI${gen}/${header}>")

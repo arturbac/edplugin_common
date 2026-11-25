@@ -155,6 +155,8 @@ if(PROJECT_IS_TOP_LEVEL)
     add_library(test_exports SHARED test/test_exports.cc)
     edplugin_common_warnings(test_exports)
     add_dependencies(edplugin_common_test test_exports)
+    # the version resource as a plugin's dll has it, read by test/version_test.sh
+    edplugin_common_version(EDPLUGIN_COMMON_TEST_VERSION test_exports_version.h test_exports)
   endif()
   option(EDPLUGIN_COMMON_CONTEXT_PROBE "build tools/context_probe (a diagnosis run by hand on Windows) and its test" ON)
   if(EDPLUGIN_COMMON_CONTEXT_PROBE)
