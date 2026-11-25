@@ -302,6 +302,16 @@ namespace edplugin_common
     return write_function.exchange(write, std::memory_order_relaxed);
     }
 
+  auto log_flush() noexcept -> bool
+    {
+    // this thread's batch written first, so its lines are in what is flushed
+    if(batch_thread.load(std::memory_order_relaxed) == GetCurrentThreadId())
+      write_batch();
+    exclusive_lock_t const hold{lock};
+    HANDLE const h{file.load(std::memory_order_acquire)};
+    return h != nullptr and FlushFileBuffers(h);
+    }
+
   auto log_close() noexcept -> void
     {
     exclusive_lock_t const hold{lock};

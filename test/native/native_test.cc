@@ -1,8 +1,10 @@
 // The checks of edplugin_common's headers without a Windows header, built natively with sanitizers
-// (tools/test-native.sh): memory/pe_range.h's ranges, memory/pass_modules.h's reading of a list, shader/shader.h's
-// hashes and 3DMigoto's name, also from several threads at once, the module ini without Windows (ini_native.cc),
-// tools/context_probe's decoding of jumps (every form cut at every length: no read past the bytes given) and its text
-// of slots, and tools/event_report's part without Windows (report_checks.h, with an ASCII-only comparison).
+// (tools/test-native.sh): dxgi/device_removed.h's names of codes, memory/pe_range.h's ranges, memory/pass_modules.h's
+// reading of a list, shader/shader.h's hashes and 3DMigoto's name, also from several threads at once, the module ini
+// without Windows (ini_native.cc), tools/context_probe's decoding of jumps (every form cut at every length: no read
+// past the bytes given) and its text of slots, and tools/event_report's part without Windows (report_checks.h, with an
+// ASCII-only comparison).
+#include <edplugin_common/dxgi/device_removed.h>
 #include <edplugin_common/memory/pass_modules.h>
 #include <edplugin_common/memory/pe_range.h>
 #include <edplugin_common/shader/shader.h>
@@ -151,6 +153,11 @@ namespace
     }
 
   static_assert(pass_names(edplugin_common::default_pass_modules) == std::vector{L"bdhkm64.dll"sv});
+
+  static_assert(edplugin_common::device_code_name(0x887A0006u) == "DXGI_ERROR_DEVICE_HUNG"sv
+                and edplugin_common::device_code_name(0u) == "S_OK"sv and edplugin_common::device_code_name(1u).empty());
+  static_assert(edplugin_common::present_lost(0x887A0005u) and edplugin_common::present_lost(0x887A0007u)
+                and not edplugin_common::present_lost(0u) and not edplugin_common::present_lost(0x887A0006u));
   static_assert(pass_names(L" a.dll ,\tb.dll\t") == std::vector{L"a.dll"sv, L"b.dll"sv});
   static_assert(pass_names(L"a.dll,,b.dll,") == std::vector{L"a.dll"sv, L""sv, L"b.dll"sv});
   static_assert(pass_names(L"").empty());

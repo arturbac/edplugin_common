@@ -59,6 +59,12 @@ namespace edplugin_common
     log_vline_to(path, fmt.get(), std::make_format_args(args...));
     }
 
+  ///\brief what is written to the log so far, this thread's batch too (it stays this thread's), flushed to the disk
+  /// (FlushFileBuffers), for a line that has to stay when the whole system stops soon after (a GPU hang or reset, a
+  /// hard restart; a process's end alone loses no written line). Slow, and every thread's lines wait for it under the
+  /// log's lock: for a rare line only. False when the log is not open or the flush failed (GetLastError() the cause)
+  auto log_flush() noexcept -> bool;
+
   ///\brief the log closed; for tests (a plugin leaves it open to the end of the process)
   auto log_close() noexcept -> void;
 

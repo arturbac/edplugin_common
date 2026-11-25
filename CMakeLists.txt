@@ -77,7 +77,8 @@ add_library(
   src/names_of.cc
   src/settings_doc.cc
   src/ini.cc
-  src/guard.cc)
+  src/guard.cc
+  src/device_removed.cc)
 # the guard's __try stays around a call of its own only outside LTO (include/edplugin_common/guard/guard.h): this file
 # never takes part in it, whatever a plugin's build does
 set_source_files_properties(src/guard.cc PROPERTIES COMPILE_OPTIONS "-fno-lto")
@@ -141,6 +142,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_shader.cc
       test/alone_names_of.cc
       test/alone_dxgi.cc
+      test/alone_device_removed.cc
       test/alone_settings_doc.cc
       test/alone_ini.cc
       test/alone_ini_text.cc

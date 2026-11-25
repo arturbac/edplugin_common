@@ -1,5 +1,7 @@
-// The checks of the modules log (log_open and its setting aside, lines, the tap, batches, log_line_to, log_close) and
-// state_log_t, in the directory `log` under the current one (tools/test.sh runs the program in a new directory).
+// The checks of the modules log (log_open and its setting aside, lines, the tap, batches, log_line_to, log_flush,
+// log_close), state_log_t and dxgi/device_removed.h's lines without a device, in the directory `log` under the current
+// one (tools/test.sh runs the program in a new directory).
+#include <edplugin_common/dxgi/device_removed.h>
 #include <edplugin_common/log/log.h>
 #include <edplugin_common/log/state_log.h>
 #include <edplugin_common/text/format.h>
@@ -402,6 +404,29 @@ namespace
 
   constinit edplugin_common::state_log_t<mode_e> global_mode{mode_e::unknown};
 
+  ///\brief log_flush, and a lost device's line once a process: without a swap chain or a device (no D3D here)
+  auto flush_and_device_loss() -> void
+    {
+    check(not edplugin_common::log_flush(), "log_flush: false without an open log");
+    std::wstring const dir{case_dir(L"device")};
+    check(edplugin_common::log_open(dir, L"p"), "log_open: for the lost device's lines");
+    edplugin_common::log_line("before");
+    check(edplugin_common::log_flush(), "log_flush: true with an open log");
+    edplugin_common::check_device_removed(nullptr);
+    edplugin_common::note_present_result(nullptr, 0);
+    edplugin_common::note_present_result(nullptr, static_cast<long>(0x887A0006u));  // DEVICE_HUNG: not a Present's loss
+    check(not edplugin_common::device_loss_logged(), "device_removed: no device, S_OK or another code logs nothing");
+    edplugin_common::note_present_result(nullptr, static_cast<long>(0x887A0005u));
+    edplugin_common::note_present_result(nullptr, static_cast<long>(0x887A0007u));
+    edplugin_common::log_close();
+    std::string const text{read_file(dir + L"\\p.log")};
+    std::vector<std::string_view> const lines{lines_of(text)};
+    check(edplugin_common::device_loss_logged() and lines.size() == 2 and lines[1].substr(25)
+            == "the device is lost: Present returned 0x887A0005 (DXGI_ERROR_DEVICE_REMOVED); its reason unknown (no device "
+               "from the swap chain)",
+          "device_removed: a Present's DEVICE_REMOVED logged once a process, the second loss not");
+    }
+
   auto states() -> void
     {
     check(global_mode.last() == mode_e::unknown, "state_log_t: constant-initialised with the first value");
@@ -429,5 +454,6 @@ auto log_tests(void (*checker)(bool ok, char const * what)) -> void
   tap_outside_the_lock();
   batches();
   stress();
+  flush_and_device_loss();
   states();
   }

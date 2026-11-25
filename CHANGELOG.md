@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `dxgi/device_removed.h` (`src/device_removed.cc`): a lost device told once for the module in the log, the line
+  flushed: `note_present_result(chain, hr)` after a Present (a failure reads the device's `GetDeviceRemovedReason`;
+  `DXGI_ERROR_DEVICE_REMOVED`, `_RESET` or a reason other than `S_OK` is logged), `check_device_removed(device)` for a
+  plugin without a Present, its caller at most once a second; the codes by name (`device_code_name`). `log_flush()`:
+  the log's file, this thread's batch too, flushed to the disk, for a line that has to outlive a stop of the system.
 - `edplugin_common_version`: the header also has `<macro>_COMMIT` (HEAD's full commit) and `<macro>_BUILD_TIME`
   (`SOURCE_DATE_EPOCH`, else HEAD's commit time, in UTC; `-dirty` as the version), and in a Windows build each
   target gets a version resource (VERSIONINFO): the version text, the target's names, numbers X,Y,Z,K (K the commits

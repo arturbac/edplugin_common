@@ -41,6 +41,9 @@ License: MIT (see `LICENSE`).
     exception, also a batch the caller began before the guarded call): a batch never ended keeps its lines and stays
     that thread's for good.
   - `log_line_to(path, fmt, ...)`: one such line appended to another file (opened, written, closed).
+  - `log_flush()`: what is written so far, this thread's batch too, flushed to the disk (`FlushFileBuffers`), for a
+    line that has to stay when the whole system stops soon after (a GPU hang or reset); a process's end alone loses
+    no written line. Slow, every thread's lines wait for it: for a rare line. False without an open log.
   - `log_is_open()`; `log_close()` for tests.
   - `log_break()`: the log off for the rest of the session, no line made or written from then, said once by
     `OutputDebugString`; the guard calls it after a fault in the log's own write. `log_is_broken()`.
@@ -110,6 +113,13 @@ License: MIT (see `LICENSE`).
   `src/names_of.cc`): `names_of(code, bytes)`, both names under a fault handler, `read` false when the bytes could not
   be read.
 - `include/edplugin_common/dxgi/format.h` - `is_integer(format)`: a UINT or SINT format.
+- `include/edplugin_common/dxgi/device_removed.h` (`src/device_removed.cc`) - a lost device told once for the module
+  in the log, the line flushed (`log_flush`): `note_present_result(chain, hr)` after a `Present` or `Present1` (only a
+  failure's code does anything: then the swap chain's device's `GetDeviceRemovedReason`; logged for
+  `DXGI_ERROR_DEVICE_REMOVED`, `DXGI_ERROR_DEVICE_RESET` or a reason other than `S_OK`), `check_device_removed(device)`
+  for a plugin without a `Present` of its own, which calls it at most once a second (`GetDeviceRemovedReason` not
+  `S_OK`); the line names both codes (`device_code_name`, no Windows header). No other D3D call.
+  `device_loss_logged()`.
 - Fault handlers: a `__try` catches a fault only of what it calls (clang-cl without `/EHa` does not catch a fault of an
   instruction in the `__try` body itself), so the reads under one are in a function of their own, not inlined
   (`names_of` and `first_export_with_prefix`, each with a `__try` of its own; the guard's body, called through a
@@ -380,7 +390,8 @@ dll built as a plugin's with the build directory's toolchain, built twice, the s
 the commit's time as its time stamp, the PDB named without a path, and relinked with `SOURCE_DATE_EPOCH`'s time; without
 wine), `test/proxy_exports_test.sh` (`edplugin_common_proxy_exports` by `cmake -P` on lists it makes,
 without wine; the expected files in `test/proxy_exports/`) and `edplugin_common_test.exe` (a plain program, without
-d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, the ini's files (made, completed
+d3d11 or dxgi; with the log's checks, among them 4 threads writing batches at once, `log_flush` and a lost device's
+line once a process without a device, the ini's files (made, completed
 by their line ends, UTF-16 and a file that cannot be read left alone, a write that fails part way taken away or cut
 back, the watch's looks), `pe_image` with its exports and
 imports on every module of the process and on an image made in memory, whole and out of shape one way at a time, and
