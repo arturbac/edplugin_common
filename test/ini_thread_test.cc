@@ -58,9 +58,13 @@ namespace
 
   auto told(std::string_view line) noexcept -> void { log_line("{}", line); }
 
+  ///\brief the ini written beside it and moved over it: the thread never reads it cut short (an empty file would be
+  /// read as every value's default and published)
   auto put(std::wstring const & path, std::string_view text) -> bool
     {
-    return write_whole_file(path, text.data(), text.size());
+    std::wstring const part{path + L".part"};
+    return write_whole_file(part, text.data(), text.size())
+           and MoveFileExW(part.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) != FALSE;
     }
 
   ///\brief the plugin's side of a start: its live object started, its watch marked seen, the thread started
@@ -119,14 +123,18 @@ namespace
     put(ini, "level = 9\n");
     check(published(p, 1, 3000) and p.live->acquire().settings.level == 4.f,
           "settings thread: the plugin's clamps on a read");
+    // two wakes 100 ms apart, each asked by ask_soon: two reads within 400 ms. Without the wakes the asks wait for the
+    // look's rhythm of a second: one read at most in less than a second (checked, as a slow Sleep can stretch it)
     std::uint32_t const before{p.live->acquire().generation};
-    p.watch->ask_soon();
     ULONGLONG const asked{GetTickCount64()};
+    p.watch->ask_soon();
     ini_thread_wake(*p.thread);
-    bool const soon{published(p, before, 3000)};
+    Sleep(100);
+    p.watch->ask_soon();
+    ini_thread_wake(*p.thread);
+    bool const two{published(p, before + 1, 300)};
     ULONGLONG const took{GetTickCount64() - asked};
-    // the thread waits a second at most between passes: a pass at once shows the wake
-    check(soon and took < 700u, "ini_thread_wake: a pass at once (asked by ask_soon)");
+    check(two and took < 900u, "ini_thread_wake: a pass at once, two wakes two reads (asked by ask_soon)");
     }
 
   auto fault_in_change(std::wstring const & dir, std::wstring const & log) -> void
