@@ -267,17 +267,28 @@ License: MIT (see `LICENSE`).
   computer, a VM): on each hardware adapter and on the default device (no adapter given), where the D3D11 runtime keeps
   the method tables of a device and of its immediate context, which of the context's slots the runtime rewrites
   (multithread protection, `ClearState`), which entries lie outside the system d3d11 and where their trampolines lead
-  (`module+offset`), which entries in the system d3d11 start with a jump out of it (an inline hook), and the process's
-  modules outside the Windows folder (what was injected into it; a graphics driver's driver store is inside it). Then,
-  on each device with no flags, a flip model swap chain (BGRA8, two buffers) on a window that is never shown and four
-  `Present(0, 0)` without drawing, each on a thread of its own with a time limit: after the swap chain is made, after
-  the first and after the last `Present` the swap chain's table (entries outside the system dxgi, entries in it that
-  start with a jump out of it), the slots of the device's and the context's tables changed since before the swap chain
-  with where they lead, and the modules outside the Windows folder that came, for an overlay that hooks only at the swap
-  chain or at `Present`; after the last `Present` the device's and the context's tables told again (an inline hook in
-  the system d3d11 too). Every table is read as a copy, under `__try`. It is not the game: an overlay that hooks only a
-  game it knows (by its exe) is not seen. The lines go to `context_probe-<date>-<time>.txt` beside it (a file of its own
-  for each run); a player's instructions in `README.txt` there. The decoding of jumps, the methods' names by slot and
+  (`module+offset`), which entries in the system d3d11 start with a jump out of it (an inline hook), the entries past
+  the named methods counted by the module they lead to (the system's, the driver store's, another in the Windows
+  folder, one outside it, none), and the process's modules outside the Windows folder (what was injected into it; a
+  graphics driver's driver store is inside it). Then, on each device, the library's context hooks (`hooks.cc`): plugin A
+  and plugin B attach by the rule (on Windows A makes a table of its own, B recognizes it by its mark and hooks in it in
+  place), plugin C asks for a table of its own over them; each hooks `Draw`, `IASetPrimitiveTopology`, `ClearState`
+  and `Flush`, counts its calls and calls its original; the calls go through `ID3D11DeviceContext4` (a `Draw` of
+  no vertices), with the multithread protection on, off and after `ClearState` and `Flush`, each step followed by
+  the watches' classes, the runtime's entries the stubs followed and the protection the library tells (the context
+  keeps the tables and references to the end of the process, contract c). Then, on each device with no flags, a flip
+  model swap chain (BGRA8, two buffers) on a window that is never shown, four `Present(0, 0)` without drawing, a
+  `ResizeBuffers` and one `Present` more, each on a thread of its own with a time limit: after the swap chain is made,
+  after the first and after the last `Present`, after `ResizeBuffers` and after the `Present` that follows it the swap
+  chain's table (entries outside the system dxgi, entries in it that start with a jump out of it), the slots of the
+  device's and the context's tables changed since before the swap chain with where they lead (the context's table the
+  object points at and the one it came with), and the modules outside the Windows folder that came, for an overlay that
+  hooks only at the swap chain or at `Present`; after the last `Present` the device's and the context's tables told
+  again (an inline hook in the system d3d11 too) and the plugins' hooks looked at and called again. Every table is read
+  as a copy, under `__try`; a fault in the plugins' hooks ends only their step (said in the result, no hooks on the
+  devices after it). It is not the game: an overlay that hooks only a game it knows (by its exe) is not seen. The lines
+  go to `context_probe-<date>-<time>.txt` beside it (a file of its own for each run); a player's instructions in
+  `README.txt` there. The decoding of jumps, the methods' names by slot and
   the comparison of two reads (`jump.h`, `slots.h`) need no Windows header. Built at the top level with
   `EDPLUGIN_COMMON_CONTEXT_PROBE` (ON by default; its test with `EDPLUGIN_COMMON_TESTS` too);
   `tools/context_probe/package.sh <build directory> <output directory>` makes the zip a player gets (the exe, its

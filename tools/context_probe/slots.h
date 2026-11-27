@@ -1,14 +1,16 @@
 // context_probe - the names of the methods in the D3D11 runtime's and DXGI's tables by slot, as the Windows SDK
 // (10.0.26100.0) declares them: ID3D11Device5 (with IUnknown), ID3D11DeviceContext4 (with IUnknown and
 // ID3D11DeviceChild) and IDXGISwapChain4 (with IUnknown, IDXGIObject and IDXGIDeviceSubObject); the text of a set of
-// slots, the slots two reads of a table differ in, the names a list gained, and the result file's name. No Windows
-// header: built natively too (test/native).
+// slots, the slots two reads of a table differ in, the names a list gained, where a module's file lies (the Windows
+// folder, its driver store, outside it), and the result file's name. No Windows header: built natively too
+// (test/native).
 #pragma once
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <cstddef>
+#include <cstdint>
+#include <cstdio>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -167,6 +169,54 @@ namespace context_probe
       return gained == std::vector<std::string>{"c.dll", "b.dll"};
       }(),
     "names_gained: a new name and a name once more");
+
+  ///\brief where a module's file lies
+  enum struct module_place_e : std::uint8_t
+    {
+    windows,       ///< in the Windows folder, outside its driver store
+    driver_store,  ///< in the driver store (a graphics driver's user-mode part)
+    outside,       ///< outside the Windows folder (beside the exe, or put into the process)
+    };
+
+  ///\brief `path`'s place (a long path's `\\?\` passed over), `windows_dir` the Windows folder ending in a backslash;
+  /// ASCII letters in either case
+  [[nodiscard]]
+  constexpr auto module_place(std::wstring_view path, std::wstring_view windows_dir) noexcept -> module_place_e
+    {
+    if(path.starts_with(L"\\\\?\\"))
+      path.remove_prefix(4);
+    constexpr auto lower = [](wchar_t c) noexcept { return c >= L'A' and c <= L'Z' ? wchar_t(c - L'A' + L'a') : c; };
+    constexpr auto same = [lower](std::wstring_view a, std::wstring_view b) noexcept
+      { return a.size() == b.size() and std::ranges::equal(a, b, {}, lower, lower); };
+    if(windows_dir.empty() or path.size() <= windows_dir.size()
+       or not same(path.substr(0, windows_dir.size()), windows_dir))
+      return module_place_e::outside;
+    constexpr std::wstring_view store{L"\\driverstore\\"};
+    for(std::size_t at{windows_dir.size() - 1}; at + store.size() <= path.size(); ++at)
+      if(same(path.substr(at, store.size()), store))
+        return module_place_e::driver_store;
+    return module_place_e::windows;
+    }
+
+  static_assert(module_place(L"C:\\Windows\\System32\\DriverStore\\FileRepository\\u0.inf_amd64_1\\B1\\amdxx64.dll",
+                             L"C:\\Windows\\")
+                  == module_place_e::driver_store,
+                "module_place: a graphics driver's dll in the driver store");
+  static_assert(module_place(L"c:\\windows\\system32\\driverstore\\x.dll", L"C:\\WINDOWS\\")
+                  == module_place_e::driver_store,
+                "module_place: either case");
+  static_assert(module_place(L"C:\\Windows\\System32\\d3d11on12.dll", L"C:\\Windows\\") == module_place_e::windows,
+                "module_place: a system dll");
+  static_assert(module_place(L"\\\\?\\C:\\Windows\\System32\\d3d11on12.dll", L"C:\\Windows\\")
+                  == module_place_e::windows,
+                "module_place: a long path's prefix passed over");
+  static_assert(module_place(L"C:\\Games\\DriverStore\\x.dll", L"C:\\Windows\\") == module_place_e::outside,
+                "module_place: a driver store name outside the Windows folder");
+  static_assert(module_place(L"C:\\Windows2\\x.dll", L"C:\\Windows\\") == module_place_e::outside,
+                "module_place: a folder whose name only starts as the Windows folder's");
+  static_assert(module_place(L"C:\\Windows\\", L"C:\\Windows\\") == module_place_e::outside
+                  and module_place(L"C:\\x.dll", L"") == module_place_e::outside,
+                "module_place: the folder itself, no Windows folder known");
 
   ///\brief the result file's name for a run started at the local time given, "context_probe-20261124-131500.txt"; the
   /// `n`-th try for that second (from 2) gets "-<n>" before ".txt", so no run overwrites another's result

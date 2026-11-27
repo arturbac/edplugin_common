@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `tools/context_probe/`: `context_probe.exe` 7, for the module `hook` on Windows: on each device three plugins attach
+  with the library's code (`hooks.cc`: A and B by the rule, C asking for a table of its own), hook `Draw`,
+  `IASetPrimitiveTopology`, `ClearState` and `Flush` and count their calls; the calls through `ID3D11DeviceContext4`,
+  with the multithread protection on and off and after `ClearState` and `Flush`, each step with the watches' classes,
+  the runtime's entries followed and the protection told; the entries past the named methods counted by the module
+  they lead to (`module_place` in `slots.h`: the driver store, the Windows folder, outside it); a `ResizeBuffers` and
+  one `Present` more after the swap chain's four, the context's table the object points at and the one it came with
+  both compared; the plugins' hooks again after the swap chain. `package.sh` makes `context_probe-7.zip` with the
+  library's hook sources. A fault in the plugins' hooks ends only their step (said, no hooks on the devices after it);
+  a context whose table holds an earlier device's plugin hooks gets none; each hook takes the run of the context it is
+  called for; the process ends by `TerminateProcess` (the devices the hooks keep stay alive).
 - The module `hook` (`include/edplugin_common/hook/`, `src/context.cc`, `src/own_table.cc`, `src/slot.cc`,
   `src/watch.cc`, `src/multithread.cc`) and `chain/system_d3d11.h` (`src/system_d3d11.cc`): a plugin's hooks on the
   game's immediate context kept when Windows' d3d11 rewrites its method table. `context_rule.h` picks a table of the

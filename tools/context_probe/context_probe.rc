@@ -1,8 +1,8 @@
 // the version resource by numbers instead of winver.h (not on the cross build's resource path): 0x40004 =
 // VOS_NT_WINDOWS32, 1 = VFT_APP. The manifest is a source of the target (CMake embeds it)
 1 VERSIONINFO
-FILEVERSION 6,0,0,0
-PRODUCTVERSION 6,0,0,0
+FILEVERSION 7,0,0,0
+PRODUCTVERSION 7,0,0,0
 FILEOS 0x40004
 FILETYPE 1
 BEGIN
@@ -12,11 +12,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "edplugin_common"
       VALUE "FileDescription", "A diagnosis for the plugins: the D3D11 runtime's method tables"
-      VALUE "FileVersion", "6.0.0.0"
+      VALUE "FileVersion", "7.0.0.0"
       VALUE "InternalName", "context_probe"
       VALUE "OriginalFilename", "context_probe.exe"
       VALUE "ProductName", "edplugin_common context_probe"
-      VALUE "ProductVersion", "6.0.0.0"
+      VALUE "ProductVersion", "7.0.0.0"
     END
   END
   BLOCK "VarFileInfo"

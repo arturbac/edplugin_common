@@ -1,17 +1,22 @@
-// context_probe 6 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
+// context_probe 7 - a diagnosis for the plugins on another Windows, without the game: where the D3D11 runtime keeps the
 // method tables of a device and of its immediate context, whether it rewrites their entries, and what else in the
 // process changed them. It loads d3d11.dll and dxgi.dll from the system folder only, makes devices on every hardware
 // adapter (no flags, BGRA support, single-threaded) and one with no adapter given, reads their tables, takes a snapshot
 // of the context's entries around a few calls of the runtime, follows the entries that lie outside the system d3d11 to
 // the module they lead to, tells the entries in the system d3d11 whose code starts with a jump out of it (an inline
-// hook), and lists the process's modules outside the Windows folder (what was injected into it). Then, with one set of
-// flags on each device, a swap chain on a window that is never shown and a few Present(0, 0) without drawing, as a
-// game's start: after each step the swap chain's table, what changed in the device's and the context's tables and which
-// modules came, for an overlay that hooks only at the swap chain or at Present. The lines go to
+// hook), and lists the process's modules outside the Windows folder (what was injected into it). The entries past the
+// named methods are counted by the module they lead to (the system's, a driver's in the driver store, another in the
+// Windows folder, one outside it, none). Then the plugins' context hooks as the library puts them (hooks.h: three
+// plugins, calls through ID3D11DeviceContext4, the multithread protection on and off, ClearState and Flush, the
+// watches' classes after each). Then, with one set of flags on each device, a swap chain on a window that is never
+// shown, a few Present(0, 0) without drawing and a ResizeBuffers, as a game's start: after each step the swap chain's
+// table, what changed in the device's and the context's tables and which modules came, for an overlay that hooks only
+// at the swap chain or at Present; the plugins' hooks looked at again after it. The lines go to
 // context_probe-<date>-<time>.txt beside the exe (a file of its own for each run) and to the console. Nothing is drawn,
 // nothing sent anywhere; no user or computer name and no path in the output. In a process that is not the game: an
 // overlay that hooks only a game it knows by its exe is not seen. Every table is read as a copy, under __try.
 #include "follow.h"
+#include "hooks.h"
 #include "jump.h"
 #include "slots.h"
 #include "window.h"
@@ -32,6 +37,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -112,6 +118,20 @@ namespace
     return name;
     }
 
+  ///\brief the Windows folder ending in a backslash; empty when it cannot be told
+  [[nodiscard]]
+  auto windows_folder() -> std::wstring
+    {
+    wchar_t windows[MAX_PATH]{};
+    UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
+    if(length == 0 or length >= MAX_PATH)
+      return {};
+    std::wstring dir{windows, length};
+    if(not dir.ends_with(L'\\'))
+      dir += L'\\';
+    return dir;
+    }
+
   ///\brief the file names of the process's modules outside the Windows folder (the system folder, the driver store a
   /// graphics driver loads from and the side-by-side folder are all in it), besides the exe: what the process loaded
   /// beside the exe, and what was injected into it (overlays, security software); false when the list could not be read
@@ -119,13 +139,12 @@ namespace
   auto outside_windows(std::vector<std::string> & names, char const * prefix = "") -> bool
     {
     names.clear();
-    wchar_t windows[MAX_PATH]{};
-    UINT const length{GetSystemWindowsDirectoryW(windows, MAX_PATH)};
+    std::wstring const windows_dir{windows_folder()};
     // the list, again with a larger buffer while the process holds more modules than it (a few tries: modules may
     // load meanwhile)
     std::vector<HMODULE> modules(1024);
     DWORD needed{};
-    bool listed{length != 0 and length < MAX_PATH};
+    bool listed{not windows_dir.empty()};
     for(int tries{}; listed and tries != 4; ++tries)
       {
       listed = K32EnumProcessModules(GetCurrentProcess(), modules.data(), DWORD(modules.size() * sizeof(HMODULE)),
@@ -139,9 +158,6 @@ namespace
     if(needed > modules.size() * sizeof(HMODULE))
       say("%smodules: the first %zu of %zu", prefix, modules.size(), std::size_t(needed / sizeof(HMODULE)));
     modules.resize(std::min<std::size_t>(modules.size(), needed / sizeof(HMODULE)));
-    std::wstring windows_dir{windows, length};
-    if(not windows_dir.ends_with(L'\\'))
-      windows_dir += L'\\';
     HMODULE const exe{GetModuleHandleW(nullptr)};
     for(HMODULE const module: modules)
       {
@@ -302,6 +318,52 @@ namespace
                                     : "other";
     }
 
+  ///\brief the entries `from` to `to` (past the named ones, up to the first not code) counted by the module they lead
+  /// to: the system module, a module in the driver store (a graphics driver's), another in the Windows folder, one
+  /// outside it, none; the modules other than the system one by name (the first 8)
+  auto tail_facts(char const * what, std::vector<void *> const & entries, int from, int to, HMODULE system,
+                  char const * system_name) -> void
+    {
+    if(to <= from)
+      return;
+    std::wstring const windows_dir{windows_folder()};
+    int in_system{}, in_store{}, in_windows{}, outside{}, none{};
+    struct seen_t
+      {
+      HMODULE module;
+      context_probe::module_place_e place;
+      int count;
+      };
+    std::vector<seen_t> seen;
+    for(int i{from}; i != to; ++i)
+      {
+      HMODULE const m{edplugin_common::module_of(entries[std::size_t(i)])};
+      if(not m or m == system)
+        {
+        ++(m ? in_system : none);
+        continue;
+        }
+      auto at{std::ranges::find(seen, m, &seen_t::module)};
+      if(at == seen.end())
+        {
+        seen.push_back({m, context_probe::module_place(edplugin_common::module_path(m), windows_dir), 0});
+        at = seen.end() - 1;
+        }
+      ++at->count;
+      using place_e = context_probe::module_place_e;
+      ++(at->place == place_e::driver_store ? in_store : at->place == place_e::windows ? in_windows : outside);
+      }
+    std::string names;
+    for(std::size_t i{}; i != seen.size() and i != 8; ++i)
+      names += (i ? ", " : "") + context_probe::module_name(seen[i].module) + ' ' + std::to_string(seen[i].count);
+    if(seen.size() > 8)
+      names += ", " + std::to_string(seen.size() - 8) + " more modules";
+    say("%s: entries %d-%d (past the named): system %s %d, driver store %d, other in the Windows folder %d, outside it "
+        "%d, no module %d%s%s",
+        what, from, to - 1, system_name, in_system, in_store, in_windows, outside, none, names.empty() ? "" : "; ",
+        names.c_str());
+    }
+
   ///\brief a table's place and length, how many of its entries lie in the system module it belongs to (`system`, named
   /// `system_name`: d3d11, or dxgi for a swap chain), each of its named entries that does not (up to foreign_lines)
   /// with where it leads, and each named entry in it whose code starts with a jump out of it (up to foreign_lines); the
@@ -346,6 +408,7 @@ namespace
     say("%s: table entries %d to the first null, %d to the first not code, %d all in the system %s (followed up to "
         "%d); first 96: system %s %d, other module %d, no module %d",
         what, to_null, to_code, system_prefix, system_name, table_scan, system_name, in_system, in_other, in_none);
+    tail_facts(what, entries, int(n), to_code, system, system_name);
     // each named entry outside the system module: its method, where it lies, and where its jumps lead; each one in it
     // whose first instruction jumps out of it
     int told{}, foreign{}, hooks_told{}, hooks{};
@@ -420,13 +483,14 @@ namespace
     }
 
   bool lock_hung{};
-  bool present_hung{};  ///< a Present that did not come back: the device and DXGI are held by its thread
+  bool hooks_faulted{};  ///< a fault in the plugins' hooks: no hooks on the devices after it
+  bool present_hung{};  ///< a Present or ResizeBuffers that did not come back: the device and DXGI held by its thread
 
   ///\brief why no more devices are made: the line's end after "not probed: "; nullptr when nothing hung
   [[nodiscard]]
   auto hung() -> char const *
     {
-    return lock_hung ? "the runtime's lock hung before" : present_hung ? "a Present hung before" : nullptr;
+    return lock_hung ? "the runtime's lock hung before" : present_hung ? "a swap chain's call hung before" : nullptr;
     }
 
   ///\brief a device on `adapter` (the default one for nullptr)
@@ -481,25 +545,34 @@ namespace
   constexpr int device5_entries{static_cast<int>(context_probe::device_methods.size())};
   static_assert(device5_entries == 69);
 
-  ///\brief `chain`'s Present(0, 0), on a thread of its own with a timeout: a Present that hangs (an overlay, a driver)
-  /// holds that thread, not the probe; the Present's hr, or nothing when it did not come back in 10 s. The window's
-  /// messages are handled meanwhile: DXGI or an overlay may send it one from the Present's thread and wait for it
+  /// the size ResizeBuffers gives the swap chain's buffers (the window's stays)
+  constexpr UINT resized_width{800};
+  constexpr UINT resized_height{600};
+
+  ///\brief `chain`'s Present(0, 0), or its ResizeBuffers to resized_width x resized_height when `resize`, on a thread
+  /// of its own with a timeout: a call that hangs (an overlay, a driver) holds that thread, not the probe; the call's
+  /// hr, or nothing when it did not come back in 10 s. The window's messages are handled meanwhile: DXGI or an overlay
+  /// may send it one from the call's thread and wait for it
   [[nodiscard]]
-  auto present_in_time(IDXGISwapChain1 * chain, context_probe::hidden_window_t const & window, HRESULT & hr) -> bool
+  auto chain_call_in_time(IDXGISwapChain1 * chain, bool resize, context_probe::hidden_window_t const & window,
+                          HRESULT & hr) -> bool
     {
     struct work_t
       {
       IDXGISwapChain1 * chain;
+      bool resize;
       HRESULT hr;
       };
     // static: a thread still running after the wait writes it later, when this frame is gone
     static work_t work;
-    work = {chain, E_PENDING};
+    work = {chain, resize, E_PENDING};
     HANDLE const thread{CreateThread(nullptr, 0,
                                      [](void * p) -> DWORD
                                        {
                                        auto & w{*static_cast<work_t *>(p)};
-                                       w.hr = w.chain->Present(0, 0);
+                                       w.hr = w.resize ? w.chain->ResizeBuffers(0, resized_width, resized_height,
+                                                                                DXGI_FORMAT_UNKNOWN, 0)
+                                                       : w.chain->Present(0, 0);
                                        return 0;
                                        },
                                      &work, 0, nullptr)};
@@ -530,13 +603,12 @@ namespace
     return true;
     }
 
-  ///\brief what changed in a table since `before` (read as a copy before the swap chain), each changed named slot with
-  /// where it leads now (up to foreign_lines)
+  ///\brief what changed in a table since `before` (read as a copy before the swap chain from `table_before`), `table`
+  /// the one read now; each changed named slot with where it leads now (up to foreign_lines)
   template<std::size_t n>
-  auto table_since(char const * what, void ** table_before, std::vector<void *> const & before, void * object,
+  auto table_since(char const * what, void ** table_before, std::vector<void *> const & before, void ** table,
                    std::array<std::string_view, n> const & names) -> void
     {
-    void ** const table{*reinterpret_cast<void ***>(object)};
     std::vector<void *> const now{context_probe::read_entries(table, int(n))};
     std::vector<bool> const changed{context_probe::slots_differ(before, now)};
     int const count{int(std::ranges::count(changed, true))};
@@ -565,19 +637,23 @@ namespace
       }
     }
 
-  ///\brief a swap chain as a game makes one at its start (a flip model on a window, BGRA8, two buffers) and a few
-  /// Present(0, 0) without drawing: after each step the swap chain's table, what changed in the device's and the
-  /// context's tables since before it, and the modules outside the Windows folder that came (an overlay that hooks only
-  /// at the swap chain or at Present). The window is never shown; the swap chain and the window are released on every
-  /// way out but a hung Present (its thread holds them: both left as they are)
-  auto swap_chain_step(ID3D11Device * device, ID3D11DeviceContext * ctx) -> void
+  ///\brief a swap chain as a game makes one at its start (a flip model on a window, BGRA8, two buffers), a few
+  /// Present(0, 0) without drawing, a ResizeBuffers and one Present more: after each step the swap chain's table, what
+  /// changed in the device's and the context's tables since before it (the table the object points at and, when the
+  /// plugins' hooks moved it, `runtime_table`, the one it came with), and the modules outside the Windows folder that
+  /// came (an overlay that hooks only at the swap chain or at Present). The window is never shown; the swap chain and
+  /// the window are released on every way out but a hung call of the swap chain (its thread holds them: both left as
+  /// they are)
+  auto swap_chain_step(ID3D11Device * device, ID3D11DeviceContext * ctx, void ** runtime_table) -> void
     {
     say("");
-    say("swap chain: on a window never shown, flip model, BGRA8, 2 buffers, %dx%d; Present(0, 0) without drawing",
-        context_probe::hidden_window_t::width, context_probe::hidden_window_t::height);
+    say("swap chain: on a window never shown, flip model, BGRA8, 2 buffers, %dx%d; Present(0, 0) without drawing, then "
+        "ResizeBuffers to %ux%u",
+        context_probe::hidden_window_t::width, context_probe::hidden_window_t::height, resized_width, resized_height);
     // the state before it
     void ** const ctx_table{*reinterpret_cast<void ***>(ctx)};
     std::vector<void *> const ctx_before{context_probe::read_entries(ctx_table, context4_entries)};
+    std::vector<void *> const runtime_before{context_probe::read_entries(runtime_table, context4_entries)};
     void ** const device_table{*reinterpret_cast<void ***>(device)};
     std::vector<void *> const device_before{context_probe::read_entries(device_table, device5_entries)};
     std::vector<std::string> modules_before;
@@ -634,8 +710,13 @@ namespace
                     system_dxgi, "dxgi");
       else
         say("  swap chain: its table not told, dxgi.dll from the system folder not loaded");
-      table_since("swap chain, immediate context", ctx_table, ctx_before, ctx, context_probe::context_methods);
-      table_since("swap chain, device", device_table, device_before, device, context_probe::device_methods);
+      table_since("swap chain, immediate context", ctx_table, ctx_before, *reinterpret_cast<void ***>(ctx),
+                  context_probe::context_methods);
+      if(runtime_table != ctx_table)
+        table_since("swap chain, the table the immediate context came with", runtime_table, runtime_before,
+                    runtime_table, context_probe::context_methods);
+      table_since("swap chain, device", device_table, device_before, *reinterpret_cast<void ***>(device),
+                  context_probe::device_methods);
       std::vector<std::string> modules;
       if(not modules_known or not outside_windows(modules, "    swap chain, "))
         {
@@ -648,13 +729,11 @@ namespace
       for(std::string const & name: gained)
         say("      swap chain, module came %s", name.c_str());
       };
-    window.pump();
-    step("the swap chain made");
-    constexpr int presents{4};
-    for(int i{1}; i <= presents; ++i)
+    // a Present (or ResizeBuffers) told; false when it hung: the objects behind it left as they are
+    auto const call = [&](bool resize, int i) -> bool
       {
-      HRESULT present{};
-      if(not present_in_time(chain.p, window, present))
+      HRESULT result{};
+      if(not chain_call_in_time(chain.p, resize, window, result))
         {
         present_hung = true;
         chain.p = nullptr;  // held by the hung thread: neither released nor used
@@ -663,17 +742,38 @@ namespace
         adapter.p = nullptr;
         dxgi.p = nullptr;
         window.abandon();  // nor its window: a hook on the window's messages may wait for that thread
-        say("swap chain: Present %d did not come back in 10 s; nothing more with this device", i);
-        return;
+        if(resize)
+          say("swap chain: ResizeBuffers did not come back in 10 s; nothing more with this device");
+        else
+          say("swap chain: Present %d did not come back in 10 s; nothing more with this device", i);
+        return false;
         }
       window.pump();
-      say("swap chain: Present %d hr 0x%08lX", i, static_cast<unsigned long>(present));
+      if(resize)
+        say("swap chain: ResizeBuffers hr 0x%08lX", static_cast<unsigned long>(result));
+      else
+        say("swap chain: Present %d hr 0x%08lX", i, static_cast<unsigned long>(result));
+      return true;
+      };
+    window.pump();
+    step("the swap chain made");
+    constexpr int presents{4};
+    for(int i{1}; i <= presents; ++i)
+      {
+      if(not call(false, i))
+        return;
       if(i == 1 or i == presents)
         step(i == 1 ? "the first Present" : "the last Present");
       }
-    // after the Presents: the device's and the context's own facts again (an inline hook in the system d3d11 too)
-    table_facts("  immediate context after Present", ctx, *reinterpret_cast<void ***>(ctx),
-                context_probe::context_methods);
+    if(not call(true, 0))
+      return;
+    step("ResizeBuffers");
+    if(not call(false, presents + 1))
+      return;
+    step("the Present after ResizeBuffers");
+    // after the Presents: the device's and the context's own facts again (an inline hook in the system d3d11 too); the
+    // context's table the one it came with
+    table_facts("  immediate context after Present", ctx, runtime_table, context_probe::context_methods);
     table_facts("  device after Present", device, *reinterpret_cast<void ***>(device), context_probe::device_methods);
     }
 
@@ -764,11 +864,33 @@ namespace
       ctx2->Release();
     if(device2)
       device2->Release();
+    // the plugins' hooks, on the context from here to the end of the process (each took a reference: the device stays)
+    context_probe::sink_t const sink{[](char const * line) { say("%s", line); }};
+    context_probe::hooks_run_t * run{};
+    DWORD fault{};
+    if(hooks_faulted)
+      say("the plugins' hooks not put on this device: a fault in them on a device before");
+    else if(not context_probe::hooks_step_caught(device, ctx, sink, run, fault))
+      {
+      hooks_faulted = true;
+      say("the plugins' hooks: a FAULT (code 0x%08lX); nothing more with this device (left as it is), no hooks on the "
+          "devices after it",
+          static_cast<unsigned long>(fault));
+      return;
+      }
     // the swap chain with one set of flags: no flags, as the default device
     if(flags == 0)
-      swap_chain_step(device, ctx);
+      swap_chain_step(device, ctx, run ? context_probe::hooks_runtime_table(run) : *reinterpret_cast<void ***>(ctx));
     if(present_hung)
-      return;  // the device is held by the hung Present's thread: neither released nor used
+      return;  // the device is held by the hung call's thread: neither released nor used
+    if(flags == 0 and run and not context_probe::hooks_again_caught(run, "after the swap chain", sink, fault))
+      {
+      hooks_faulted = true;
+      say("the plugins' hooks after the swap chain: a FAULT (code 0x%08lX); this device left as it is, no hooks on the "
+          "devices after it",
+          static_cast<unsigned long>(fault));
+      return;
+      }
     ctx->Release();
     device->Release();
     }
@@ -865,7 +987,7 @@ namespace
   ///\brief the probe itself, its lines in `out`
   auto run() -> void
     {
-    say("context_probe 6");
+    say("context_probe 7");
     say("looked at in this program, also with a swap chain on a window never shown: an overlay that hooks only a game "
         "it knows (by its exe, or started from its launcher) is not seen here");
     windows_version();
@@ -981,9 +1103,8 @@ auto main() -> int
   std::printf("press Enter to close\n");
   (void)std::getchar();
   std::fflush(stdout);
-  // a hung thread holds the runtime's lock or a Present: the process ends without the modules' detach, which could
-  // wait for it
-  if(hung())
-    TerminateProcess(GetCurrentProcess(), 0);
-  ExitProcess(0);
+  // the process ends without the modules' detach: a hung thread may hold the runtime's lock or a Present, and the
+  // devices the plugins' hooks keep (contract c) are alive, so a driver's detach could wait on them
+  TerminateProcess(GetCurrentProcess(), 0);
+  return 0;
   }

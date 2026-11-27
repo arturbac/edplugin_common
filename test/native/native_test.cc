@@ -128,6 +128,18 @@ namespace
     check(context_probe::names_gained(was, is) == std::vector<std::string>{"c.dll", "b.dll"},
           "names_gained: a new name and a name once more, in the order of now");
     check(context_probe::names_gained(is, was).empty(), "names_gained: none");
+    std::wstring const windows{L"C:\\Windows\\"};
+    std::wstring const driver{L"C:\\WINDOWS\\System32\\DriverStore\\FileRepository\\v.inf_amd64_0\\venera_d3d11.dll"};
+    check(context_probe::module_place(driver, windows) == context_probe::module_place_e::driver_store,
+          "module_place: a driver's dll in the driver store");
+    check(context_probe::module_place(L"C:\\Windows\\System32\\dxgi.dll", windows)
+            == context_probe::module_place_e::windows,
+          "module_place: a system dll");
+    check(context_probe::module_place(L"D:\\probe\\context_probe.exe", windows)
+            == context_probe::module_place_e::outside,
+          "module_place: beside the exe");
+    check(context_probe::module_place(L"C:\\Windows", windows) == context_probe::module_place_e::outside,
+          "module_place: shorter than the Windows folder");
     check(context_probe::result_name(2026, 11, 24, 9, 5, 7) == "context_probe-20261124-090507.txt",
           "result_name: the run's local time");
     check(context_probe::result_name(2026, 11, 24, 9, 5, 7, 2) == "context_probe-20261124-090507-2.txt",
