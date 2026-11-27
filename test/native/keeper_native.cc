@@ -1,10 +1,14 @@
-// The checks of ini/view.h and ini/keeper.h without Windows, built natively with sanitizers (tools/test-native.sh): a
-// plugin's table and live settings seen through the view without the plugin's types - the rows, the values as the ini
-// writes them, the defaults, a read of a text, the plugin's clamps, the start-only changes and the publication; the
-// settings thread's steps - a look, a read and its lines, a file that cannot be read or is UTF-16, the freeze after a
-// fault in a change or after the last attempt, a read that throws, and reads on one thread while another takes the
-// settings (TSan).
+// The checks of ini/view.h, ini/keeper.h and ini/thread.h without Windows, built natively with sanitizers
+// (tools/test-native.sh): a plugin's table and live settings seen through the view without the plugin's types - the
+// rows, the values as the ini writes them, the defaults, a read of a text, the plugin's clamps, the start-only changes
+// and the publication; the settings thread's steps - a look, a read and its lines, a file that cannot be read or is
+// UTF-16, the freeze after a fault in a change or after the last attempt, a read that throws, and reads on one thread
+// while another takes the settings (TSan); the settings thread's pass over a test's own files - the look's rhythm, a
+// read, a file that cannot be read, is empty or is taken away, the extension's step and its wait, an extension set
+// once, a frozen keeper, an extension set on another thread while passes run (TSan); and the start a plugin
+// instantiates, through a start of this test's own in place of the library's Windows part.
 #include <edplugin_common/ini/keeper.h>
+#include <edplugin_common/ini/thread.h>
 #include <edplugin_common/ini/view.h>
 
 #include <algorithm>
@@ -124,6 +128,11 @@ namespace edplugin_common::detail
       }
 
     static auto destroy(ini_keeper_t * k) noexcept -> void { delete k; }
+    };
+
+  struct ini_thread_peek_t
+    {
+    static auto destroy(ini_thread_t * t) noexcept -> void { delete t; }
     };
   }  // namespace edplugin_common::detail
 
@@ -283,6 +292,231 @@ namespace
     }
   }  // namespace
 
+// the start a plugin instantiates calls this in place of the library's Windows part (src/ini_thread.cc), which the
+// native build does not have: what it was given, kept for the check
+namespace
+  {
+  struct started_t
+    {
+    int calls{};
+    edplugin_common::ini_view_t view{};
+    edplugin_common::ini_watch_t const * watch{};
+    edplugin_common::ini_told_t told;
+    int attempts{};
+    };
+
+  started_t started;
+  }  // namespace
+
+auto edplugin_common::ini_thread_start(ini_view_t const & view, ini_watch_t & watch, ini_told_t && told,
+                                       int attempts) noexcept -> ini_thread_t *
+  {
+  ++started.calls;
+  started.view = view;
+  started.watch = &watch;
+  started.told = std::move(told);
+  started.attempts = attempts;
+  return nullptr;
+  }
+
+namespace
+  {
+  using edplugin_common::detail::ini_thread_peek_t;
+
+  ///\brief the ini as the settings thread's pass sees it, set by the test
+  struct files_t
+    {
+    ini_look_e look{ini_look_e::same};
+    std::optional<std::string> text;
+    bool there{true};
+    bool unreadable_said{};
+    int looks{};
+    int reads{};
+    int readable{};
+
+    static auto of(void * c) noexcept -> files_t & { return *static_cast<files_t *>(c); }
+
+    static auto look_at(void * c, std::uint64_t) noexcept -> ini_look_e
+      {
+      ++of(c).looks;
+      return of(c).look;
+      }
+
+    static auto read(void * c) noexcept -> std::optional<std::string>
+      {
+      ++of(c).reads;
+      return of(c).text;
+      }
+
+    static auto is_there(void * c) noexcept -> bool { return of(c).there; }
+
+    static auto unreadable(void * c) noexcept -> bool { return not std::exchange(of(c).unreadable_said, true); }
+
+    static auto made_readable(void * c) noexcept -> void
+      {
+      of(c).unreadable_said = false;
+      ++of(c).readable;
+      }
+
+    auto files() noexcept -> ini_files_t { return {this, &look_at, &read, &is_there, &unreadable, &made_readable}; }
+    };
+
+  ///\brief an extension of the test's own: its steps counted, the keeper it was given, the wait it asks
+  struct step_t
+    {
+    int steps{};
+    ini_keeper_t * keeper{};
+    std::uint32_t wait{ini_thread_t::look_ms};
+    int value{};       ///< set before the extension, read by its step (TSan)
+    int seen{};        ///< the value its step saw
+    std::atomic<bool> stepped{};
+
+    static auto step(void * c, ini_keeper_t & k, std::vector<std::string> & lines) noexcept -> std::uint32_t
+      {
+      step_t & s{*static_cast<step_t *>(c)};
+      ++s.steps;
+      s.keeper = &k;
+      s.seen = s.value;
+      s.stepped.store(true, std::memory_order_relaxed);
+      try
+        {
+        lines.emplace_back("step");
+        }
+      catch(...)
+        {
+        }
+      return s.wait;
+      }
+    };
+
+  auto thread_pass() -> void
+    {
+    live3_settings_t<view_settings_t> l;
+    l.start(view_settings_t{}, nullptr);
+    ini_keeper_t * const k{ini_keeper_t::make(ini_view_of(table, l, &clamp), "edtest.ini", ini_told_t{})};
+    files_t f;
+    ini_thread_t * const t{ini_thread_t::make(*k, f.files(), &f, 3)};
+    check(t != nullptr and &t->keeper() == k and t->wake() == &f and t->attempts() == 3, "ini_thread_t::make");
+    std::vector<std::string> lines;
+    t->body_started(lines);
+
+    f.look = ini_look_e::changed;
+    f.text = "level = 0.5\nlist = B\n";
+    check(t->pass(10'000, lines) == 1000u and f.reads == 1 and f.readable == 1 and lines.empty()
+            and l.acquire().generation == 1u and l.acquire().settings.level == 0.5f,
+          "ini_thread_t::pass: a changed ini read and published, the next pass a second on");
+    f.look = ini_look_e::not_due;
+    check(t->pass(10'400, lines) == 600u and f.reads == 1, "ini_thread_t::pass: a look not due - nothing read, the "
+                                                           "wait to the second's end");
+    check(t->pass(11'100, lines) == 0u and f.reads == 1,
+          "ini_thread_t::pass: a look not due past the second (the watch's clock) - no wait");
+    f.look = ini_look_e::same;
+    check(t->pass(11'200, lines) == 1000u and f.reads == 1 and f.looks == 4,
+          "ini_thread_t::pass: the same ini - nothing read, a second to the next look");
+
+    f.look = ini_look_e::changed;
+    f.text = std::nullopt;
+    std::uint32_t const w1{t->pass(12'200, lines)};
+    std::uint32_t const w2{t->pass(13'200, lines)};
+    check(w1 == 1000u and w2 == 1000u and lines.size() == 1 and has_line(lines, "edtest.ini could not be read")
+            and f.readable == 1 and l.acquire().generation == 1u,
+          "ini_thread_t::pass: an ini that cannot be read said once, nothing published");
+    lines.clear();
+    f.text = "level = 0.25\n";
+    check(t->pass(14'200, lines) == 1000u and f.readable == 2 and not f.unreadable_said
+            and l.acquire().generation == 2u,
+          "ini_thread_t::pass: readable again - read, the watch told");
+    f.text = "";
+    f.there = false;
+    check(t->pass(15'200, lines) == 1000u and lines.empty() and l.acquire().generation == 2u,
+          "ini_thread_t::pass: no file (an empty text, not there) - nothing read, nothing said");
+    f.there = true;
+    check(t->pass(16'200, lines) == 1000u and lines.empty() and l.acquire().generation == 3u
+            and l.acquire().settings.level == 1.f,
+          "ini_thread_t::pass: an empty file there - read, every value its default");
+    f.look = ini_look_e::gone;
+    check(t->pass(17'200, lines) == 1000u and lines.size() == 1 and has_line(lines, "edtest.ini was taken away")
+            and f.reads == 6,
+          "ini_thread_t::pass: an ini taken away said, nothing read");
+
+    lines.clear();
+    step_t s;
+    ini_extension_t const e{&s, &step_t::step};
+    ini_extension_t const other{&s, &step_t::step};
+    check(not t->extend(nullptr) and t->extend(&e) and not t->extend(&other) and not t->extend(&e),
+          "ini_thread_t::extend: once, never nullptr");
+    f.look = ini_look_e::same;
+    s.wait = 100;
+    check(t->pass(18'200, lines) == 100u and s.steps == 1 and s.keeper == k and lines.size() == 1
+            and lines[0] == "step",
+          "ini_thread_t::pass: the extension's step with the keeper, its lines, its shorter wait");
+    s.wait = 5000;
+    check(t->pass(19'200, lines) == 1000u and s.steps == 2,
+          "ini_thread_t::pass: an extension's longer wait - the look's rhythm");
+
+    lines.clear();
+    t->attempts_spent(lines);
+    f.look = ini_look_e::changed;
+    f.text = "level = 0\n";
+    check(k->frozen() and lines.size() == 1 and has_line(lines, ini_keeper_t::spent_line)
+            and t->pass(20'200, lines) == 1000u and s.steps == 3 and f.reads == 6 and l.acquire().generation == 3u,
+          "ini_thread_t::pass: frozen after the last attempt - nothing read, the extension's step still runs");
+    check(k->take_lines_lost() == 0, "ini_thread_t: no line lost");
+    ini_thread_peek_t::destroy(t);
+    ini_keeper_peek_t::destroy(k);
+    }
+
+  // passes on the settings thread while another thread sets the extension: the step sees what was written before it
+  auto thread_extend() -> void
+    {
+    live3_settings_t<view_settings_t> l;
+    l.start(view_settings_t{}, nullptr);
+    ini_keeper_t * const k{ini_keeper_t::make(ini_view_of(table, l, &clamp), "edtest.ini", ini_told_t{})};
+    files_t f;
+    ini_thread_t * const t{ini_thread_t::make(*k, f.files(), nullptr, 8)};
+    step_t s;
+    ini_extension_t const e{&s, &step_t::step};
+    std::thread settings{[&]
+                           {
+                             std::vector<std::string> lines;
+                             for(std::uint64_t now{}; not s.stepped.load(std::memory_order_relaxed); now += 10)
+                               {
+                               (void)t->pass(now, lines);
+                               lines.clear();
+                               }
+                           }};
+    s.value = 42;
+    bool const set{t->extend(&e)};
+    settings.join();
+    check(set and s.seen == 42 and s.keeper == k,
+          "ini_thread_t::extend on another thread while passes run: the step sees what was written before (TSan)");
+    ini_thread_peek_t::destroy(t);
+    ini_keeper_peek_t::destroy(k);
+    }
+
+  auto thread_start() -> void
+    {
+    live3_settings_t<view_settings_t> l;
+    l.start(view_settings_t{}, nullptr);
+    ini_watch_t watch;
+    ini_told_t told;
+    (void)told.first("said at the start");
+    check(ini_live_start(table, l, &clamp, watch, std::move(told)) == nullptr and started.calls == 1
+            and started.view.table == &table and started.view.live == &l
+            and started.view.rows(started.view.table) == 4 and started.view.name(started.view.table, 2) == "folder"
+            and started.watch == &watch and started.attempts == 8 and not started.told.first("said at the start"),
+          "ini_live_start: the view of the plugin's table and live object, its watch, what was said and 8 attempts "
+          "to the library's start");
+    view_settings_t far{};
+    far.level = 9.f;
+    started.view.clamp_settings(started.view.clamp, &far);
+    check(far.level == 2.f, "ini_live_start: the plugin's clamps in the view");
+    (void)ini_live_start(table, l, nullptr, watch, ini_told_t{}, 2);
+    check(started.calls == 2 and started.attempts == 2 and started.view.clamp == nullptr,
+          "ini_live_start: without clamps, with attempts of its own");
+    }
+  }  // namespace
+
 auto keeper_native_checks(void (*checker)(bool ok, char const * what)) -> void
   {
   check = checker;
@@ -290,4 +524,7 @@ auto keeper_native_checks(void (*checker)(bool ok, char const * what)) -> void
   keeper_steps();
   keeper_throws();
   keeper_threads();
+  thread_pass();
+  thread_extend();
+  thread_start();
   }
