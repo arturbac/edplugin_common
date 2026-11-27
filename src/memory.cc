@@ -26,6 +26,32 @@ namespace edplugin_common
     return bytes <= end - at;
     }
 
+  namespace
+    {
+    ///\brief the copy itself, in a function of its own: clang-cl catches a fault under __try only from a call
+    [[gnu::noinline]]
+    auto copy_bytes(void * to, void const * from, std::size_t bytes) noexcept -> void
+      {
+      std::memcpy(to, from, bytes);
+      }
+    }  // namespace
+
+  auto copy_readable(void * to, void const * from, std::size_t bytes) noexcept -> bool
+    {
+    if(not readable(from, bytes))
+      return false;
+    // no object with a destructor in this function: a fault unwinds nothing but the frame
+    __try
+      {
+      copy_bytes(to, from, bytes);
+      return true;
+      }
+    __except(fault_action(GetExceptionCode()))
+      {
+      return false;
+      }
+    }
+
   auto executable(void const * p) noexcept -> bool
     {
     MEMORY_BASIC_INFORMATION m{};

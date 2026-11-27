@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- The module `hook` (`include/edplugin_common/hook/`, `src/context.cc`, `src/own_table.cc`, `src/slot.cc`,
+  `src/watch.cc`, `src/multithread.cc`) and `chain/system_d3d11.h` (`src/system_d3d11.cc`): a plugin's hooks on the
+  game's immediate context kept when Windows' d3d11 rewrites its method table. `context_rule.h` picks a table of the
+  plugin's own or in place (`context_pick`, its cases as `static_assert`s); `own_table.h` makes the table of its own
+  (stubs through the runtime's entries, a mark another copy recognises it by); `slot.h` writes a list of slots in place,
+  all or nothing; `context.h` attaches (`context_hooks_t`: `works(this)` false until the whole list is in, one try
+  per plugin - a second attach is refused before anything changes, another context always passes); `watch.h`
+  classes the watched entries and the object's table (ours, covered, taken, taken by the runtime, a plugin above,
+  re-pointed) and counts calls for the census; `multithread.h` tells the runtime's
+  multithread protection; `contract.h` the contract's version (1). `copy_readable(to, from, bytes)` in
+  `memory/memory.h`. Checked natively with ASan, UBSan and TSan (the rule, the mark, the write order, the classes) and
+  under wine (`test/context_test.cc`: a context of the test's own on a heap table, the runtime rewriting it, two copies,
+  a plugin above with a table of its own, a list that cannot be written, an entry taken back, the protection turned on,
+  a second device, a second attach refused).
 - `dxgi/device_removed.h` (`src/device_removed.cc`): a lost device told once for the module in the log, the line
   flushed: `note_present_result(chain, hr)` after a Present (a failure reads the device's `GetDeviceRemovedReason`;
   `DXGI_ERROR_DEVICE_REMOVED`, `_RESET` or a reason other than `S_OK` is logged), `check_device_removed(device)` for a

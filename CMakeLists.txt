@@ -64,8 +64,8 @@ endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/edplugin_common.cmake)
 
 # a STATIC library (the modules' code: log, paths, file, memory, pass_modules, pe, shader names, settings_doc, ini,
-# guard) with the headers, and what every plugin's code compiles with (PUBLIC); its MSVC runtime is the plugin's, set
-# before add_subdirectory
+# guard, hook, chain) with the headers, and what every plugin's code compiles with (PUBLIC); its MSVC runtime is the
+# plugin's, set before add_subdirectory
 add_library(
   edplugin_common STATIC
   src/log.cc
@@ -78,7 +78,13 @@ add_library(
   src/settings_doc.cc
   src/ini.cc
   src/guard.cc
-  src/device_removed.cc)
+  src/device_removed.cc
+  src/own_table.cc
+  src/slot.cc
+  src/watch.cc
+  src/multithread.cc
+  src/system_d3d11.cc
+  src/context.cc)
 # the guard's __try stays around a call of its own only outside LTO (include/edplugin_common/guard/guard.h): this file
 # never takes part in it, whatever a plugin's build does
 set_source_files_properties(src/guard.cc PROPERTIES COMPILE_OPTIONS "-fno-lto")
@@ -130,6 +136,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/ini_test.cc
       test/pe_test.cc
       test/guard_test.cc
+      test/context_test.cc
       test/alone_lock.cc
       test/alone_once_flag.cc
       test/alone_format.cc
@@ -150,7 +157,18 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_ini_live.cc
       test/alone_guard.cc
       test/alone_pe.cc
-      test/alone_pe_range.cc)
+      test/alone_pe_range.cc
+      test/alone_context_rule.cc
+      test/alone_contract.cc
+      test/alone_own_table_mark.cc
+      test/alone_own_table.cc
+      test/alone_slot_plan.cc
+      test/alone_slot.cc
+      test/alone_watch_class.cc
+      test/alone_watch.cc
+      test/alone_multithread.cc
+      test/alone_system_d3d11.cc
+      test/alone_context.cc)
     target_link_libraries(edplugin_common_test PRIVATE edplugin_common::edplugin_common)
     edplugin_common_warnings(edplugin_common_test)
     # a dll with one export by a known prefix, beside the test (first_export_with_prefix)

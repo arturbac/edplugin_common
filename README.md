@@ -195,6 +195,57 @@ License: MIT (see `LICENSE`).
     last write; a file taken away is said once and leaves the settings as they are; `ask_soon` from any thread).
   Nothing in it logs; the plugin logs the notes and results. A key taken out of a plugin goes to its withdrawn keys;
   a key whose type or meaning changes gets a new name, the old one withdrawn.
+- `include/edplugin_common/hook/` (code in `src/context.cc`, `src/own_table.cc`, `src/slot.cc`, `src/watch.cc`,
+  `src/multithread.cc`) - a plugin's hooks on the game's immediate context, kept when Windows' d3d11 rewrites the
+  entries of its own method table (it does so when it switches its variants of the methods):
+  - `context_rule.h` (no Windows header, its cases as `static_assert`s) - `context_pick(input)`: on a table of the
+    plugin's own or in place, from the table's memory (image, private, unknown), its module (the system's d3d11.dll,
+    another, none), the modules of its first 96 entries, the mark of another copy of the library, the interfaces
+    `ID3D11DeviceContext1..N` the object answers as itself, the table's length (at least 115, 134, 144, 147 or 149
+    entries for N = 0..4, fewer than 2048) and the plugin's setting (`context_ask_e`: automatic, in place, own
+    table). In place for unknown memory, another module's image (3Dmigoto, ReShade), another copy's table, or fewer
+    than 3/4 of the first 96 entries in modules; the point of the rule is named in the log (`point_name`).
+  - `contract.h` - `hook_contract_version` (1), said in the log and written into the mark of a table of the
+    library's own. What a plugin may count on from another's hooks: a stub jumps through the fixed address of its
+    slot in the table the context came with, never through the object's current table; a hook's original on a table
+    of its own is the slot's stub, called with the same `this`; nothing is freed, restored or released (the table,
+    the stubs, the hooks, the context's reference stay to the end of the process); the context is attached only in
+    the path that makes the device, the plugin nearest the runtime first; a plugin loaded later does not attach and
+    says so. A plugin takes no lock of the runtime and works only while its multithread protection is off.
+  - `own_table_mark.h` (no Windows header) and `own_table.h` - a table of the library's own for one context: the
+    words before entry 0 copied, the entries in private read-write memory, and in private read-execute memory a
+    stub per entry (`mov rax, <the runtime's entry's address>; jmp [rax]`, 16 bytes) after a mark of a fixed layout
+    (magic `edpc_tbl`, the layout's version, the contract's version, the runtime's table, the entries, their count,
+    stub 0 and the step). `make_own_table`, `own_table_put` (the stub returned as the original),
+    `own_table_point` (the object pointed at the table after every hook is in), `find_mark`: a table of another copy
+    is recognised through at most 4 allocations its first entries without a module lead into; any other layout of the
+    mark is a foreign table.
+  - `slot_plan.h` (no Windows header) and `slot.h` - `patch_slots(table, list)`: every page of the list made writable
+    (write added, execute kept) before the first write and given back after the last, each slot read back; a page that
+    cannot be used gives back the pages already changed and nothing is written. Each slot's result (`patched`,
+    `already_ours`, `not_writable`, `read_back_differs`) and its original.
+  - `context.h` - `context_hooks_t::attach(context, ask, list)`: the table read (each entry under the fault handler,
+    up to 2048 leading to code), the way picked and said once in the log, the hooks written on a table of its own or
+    in place (in place too when the table of its own cannot be made, as when the stubs cannot be made executable).
+    A slot of the list past the table's entries (on another copy's table, past its mark's count) leaves the table
+    as it is. Until the whole list is in, `works(this)` is false and every hook only passes its call on; a list
+    written in part stays so. A context attached in whole gets a reference, never released. One try per plugin: a
+    second `attach` (another context, or any after a try that failed) is `refused` before anything changes, said
+    once in the log; the same context attached in whole is `already`. Another context than the one attached (a
+    second device's) always passes. `watch_setup(list)` for the watch.
+  - `watch_class.h` (no Windows header) and `watch.h` - `context_watch_t`: the watched slots' entries and the table
+    the object points at, read cheaply and classed only when they changed: a slot is ours, covered by another hook
+    (said once), taken (our original or one of our stubs back) or taken by the runtime (the runtime's entry, or any
+    other entry into the system's d3d11); a table not ours is a plugin above on a table of its own or another hook's
+    (said once), or the runtime's (the object re-pointed). Taken, taken by the runtime and re-pointed turn the plugin
+    off. For the census: the runtime entries a table of its own followed, and the slots whose hooks had no call for a
+    while.
+  - `multithread.h` - `multithread_t`: the runtime's multithread protection from the context's
+    `ID3D11Multithread`, else the device's (none: off), asked at `start` and again at `refresh()` (from any thread;
+    exactly one caller sees a change); on turns the plugin off. Never set and never taken.
+- `include/edplugin_common/chain/system_d3d11.h` (code in `src/system_d3d11.cc`) - `system_d3d11()`: the system's
+  d3d11.dll loaded once by its full path from the system directory (never by name, which under a loader is the
+  game's own copy), kept to the end of the process, and the range of its image; not from `DllMain`.
 - `cmake/clang-cl-msvc-sdk.cmake` - the toolchain: a cross build for 64-bit Windows on Linux with clang-cl and LLVM's
   tools against MSVC's and the Windows SDK's headers and libraries, from the directory `MSVC_ROOT` (cache or
   environment variable) in clang's `/winsysroot` layout (`VC/Tools/MSVC`, `Windows Kits/10`), e.g. the one
@@ -208,7 +259,7 @@ License: MIT (see `LICENSE`).
 - `cmake/edplugin_common.cmake` - the build steps the plugins share, as functions (see below), with
   `cmake/version.cmake` and `cmake/pin.cmake` they run at every build.
 - The target `edplugin_common::edplugin_common`: a STATIC library (the code of log, paths, file, memory, pe, shader
-  names, settings_doc, ini and guard) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
+  names, settings_doc, ini, guard, hook and chain) with the headers above, compiled as C++23 with `UNICODE`, `_UNICODE`, `NOMINMAX` and `WIN32_LEAN_AND_MEAN` (PUBLIC, so the plugin's code too), linked
   with stralgo; built with the MSVC runtime the plugin sets.
 - `tools/wine-common.sh` - the common part of the plugins' `tools/test.sh` (wine prefix, run directory, a time
   limit on every wine run).

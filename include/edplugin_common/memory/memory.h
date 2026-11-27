@@ -15,6 +15,12 @@ namespace edplugin_common
   [[nodiscard]]
   auto readable(void const * p, std::size_t bytes) noexcept -> bool;
 
+  ///\brief `bytes` bytes at `from` copied to `to` when readable() says they can be read, the copy under a fault handler
+  /// (another thread or module may still change or free them): false when they cannot be read or a fault came (what was
+  /// copied is not to be used then)
+  [[nodiscard]]
+  auto copy_readable(void * to, void const * from, std::size_t bytes) noexcept -> bool;
+
   ///\brief whether `p` lies in committed memory that holds code (execute access)
   [[nodiscard]]
   auto executable(void const * p) noexcept -> bool;

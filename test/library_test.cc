@@ -2,7 +2,9 @@
 // a plugin links it. Checked: the library's interface definitions reach the program, stralgo comes with it, and the
 // modules core (locks, once_flag_t), text (wide, utf8, as_unsigned, try_format_into), log and state_log_t
 // (test/log_test.cc), paths, file, memory, shader and dxgi (test/modules_test.cc), settings_doc
-// (test/settings_doc_test.cc), ini with files and append_to_file's modes (test/ini_test.cc), memory/pe.h (test/pe_test.cc) and guard (test/guard_test.cc).
+// (test/settings_doc_test.cc), ini with files and append_to_file's modes (test/ini_test.cc), memory/pe.h
+// (test/pe_test.cc), the context's hooks with a context of the test's own (test/context_test.cc) and guard
+// (test/guard_test.cc).
 #include <edplugin_common/core/lock.h>
 #include <edplugin_common/core/once_flag.h>
 #include <edplugin_common/text/format.h>
@@ -31,6 +33,8 @@ auto guard_tests(void (*checker)(bool ok, char const * what), std::wstring const
 auto guard_log_break_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
 // test/pe_test.cc
 auto pe_tests(void (*checker)(bool ok, char const * what)) -> void;
+// test/context_test.cc
+auto context_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
 
 namespace
   {
@@ -251,6 +255,7 @@ auto main() -> int
   pe_tests(check);
   wchar_t here[MAX_PATH]{};
   GetCurrentDirectoryW(MAX_PATH, here);
+  context_tests(check, here);
   guard_tests(check, here);
   // last: the log is off for the rest of the process after it
   guard_log_break_tests(check, here);
