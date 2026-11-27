@@ -403,9 +403,8 @@ namespace
       }
     }
 
-  ///\brief IASetPrimitiveTopology, Draw of no vertices (nothing bound: nothing drawn), ClearState and Flush through
-  /// ID3D11DeviceContext4 (the context itself when it has none), each hook's calls told
-  auto calls(hooks_run_t & run, char const * step, sink_t sink) -> void
+  ///\brief every hook's calls counted from 0 again
+  auto reset_counts(hooks_run_t & run) noexcept -> void
     {
     for(plugin_t & pl : run.plugins)
       for(std::size_t i{}; i != hooked.size(); ++i)
@@ -414,6 +413,13 @@ namespace
         pl.passed[i].store(0, std::memory_order_relaxed);
         }
     recursed.store(false, std::memory_order_relaxed);
+    }
+
+  ///\brief IASetPrimitiveTopology, Draw of no vertices (nothing bound: nothing drawn), ClearState and Flush through
+  /// ID3D11DeviceContext4 (the context itself when it has none), each hook's calls told
+  auto calls(hooks_run_t & run, char const * step, sink_t sink) -> void
+    {
+    reset_counts(run);
     ID3D11DeviceContext4 * c4{};
     if(FAILED(run.context->QueryInterface(__uuidof(ID3D11DeviceContext4), reinterpret_cast<void **>(&c4))))
       c4 = nullptr;
@@ -431,6 +437,7 @@ namespace
     if(c4)
       c4->Release();
     tell_counts(run, what, sink);
+    reset_counts(run);  // from here the calls of others (hooks_again tells them)
     }
 
   ///\brief whether a slot of `hooked` in the table the object points at holds a plugin's hook of this program: a
@@ -525,10 +532,12 @@ auto context_probe::hooks_again(hooks_run_t * run, char const * step, sink_t sin
   {
   if(not run)
     return;
-  say(sink, "the plugins' hooks %s:", step);
+  say(sink, "the plugins' hooks after %s:", step);
   tell_counts(*run, "calls since the last round (the swap chain's thread, an overlay)", sink);
   checks(*run, step, sink);
-  calls(*run, step, sink);
+  char after[96]{};
+  std::snprintf(after, sizeof after, "after %s", step);
+  calls(*run, after, sink);
   }
 
 auto context_probe::hooks_runtime_table(hooks_run_t const * run) noexcept -> void **

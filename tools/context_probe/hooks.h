@@ -25,7 +25,7 @@ namespace context_probe
   [[nodiscard]]
   auto hooks_step(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink) -> hooks_run_t *;
 
-  ///\brief the calls counted since the last round, the classes and the calls again, after `step` (the swap chain's)
+  ///\brief the calls counted since the last round, the classes and the calls again, after `step` ("the swap chain")
   auto hooks_again(hooks_run_t * run, char const * step, sink_t sink) -> void;
 
   ///\brief hooks_step under a fault handler: false, with the fault's code, when a fault (in a stub, a hook or the

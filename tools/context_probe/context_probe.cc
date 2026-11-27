@@ -883,7 +883,7 @@ namespace
       swap_chain_step(device, ctx, run ? context_probe::hooks_runtime_table(run) : *reinterpret_cast<void ***>(ctx));
     if(present_hung)
       return;  // the device is held by the hung call's thread: neither released nor used
-    if(flags == 0 and run and not context_probe::hooks_again_caught(run, "after the swap chain", sink, fault))
+    if(flags == 0 and run and not context_probe::hooks_again_caught(run, "the swap chain", sink, fault))
       {
       hooks_faulted = true;
       say("the plugins' hooks after the swap chain: a FAULT (code 0x%08lX); this device left as it is, no hooks on the "
