@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `tools/fake_ed/`: `fake_ed.exe` 1, a program in the game's place for the plugins' tests: `D3D11CreateDevice`
+  imported from `d3d11.dll` as the game does, the device made as the game does, a swap chain on a window shown, five
+  phases of frames (the multithread protection off, on, off again, `ClearState` and `Flush` in each frame, after
+  `ResizeBuffers`), each line at once to `fake_ed-<date>-<time>.txt` beside it; a call that does not come back in
+  20 s ends the process (exit code 2), said. Option `EDPLUGIN_COMMON_FAKE_ED`.
 - `ini/view.h` and `ini/keeper.h` (no Windows header): the settings thread's core without the thread, one code for
   every plugin. `ini_view_of` gives a plugin's table and `live3_settings_t` without its types; `ini_keeper_t` turns a
   look at the ini and a read of it into a publication and lines for the log (a file taken away, one that cannot be

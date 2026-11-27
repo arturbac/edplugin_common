@@ -344,6 +344,25 @@ License: MIT (see `LICENSE`).
   top level with `EDPLUGIN_COMMON_EVENT_REPORT` (ON by default; its test with
   `EDPLUGIN_COMMON_TESTS` too); `tools/event_report/package.sh <build directory> <output directory>` makes the zip a
   player gets, as context_probe's.
+- `tools/fake_ed/` - `fake_ed.exe`, a program in the game's place for the plugins' tests, without the game: it
+  imports `D3D11CreateDevice` from `d3d11.dll` as the game does (statically, so the `d3d11.dll` beside the exe -
+  edloader - is loaded in its place), makes the device as the game does in its logs (`D3D11CreateDevice` with no
+  adapter, hardware, no flags, levels 12_0, 11_1, 11_0: first without a device, then with one), a flip model swap
+  chain (BGRA8, two buffers, 640x480) on a window shown on the screen, and five phases of frames, 3 s each: the
+  multithread protection off, on, turned off again, `ClearState` and `Flush` in each frame, after a `ResizeBuffers` to
+  800x600. A frame is `IASetPrimitiveTopology`, a `Draw` of no points, `ClearState` and `Flush` by the phase and
+  `Present(0, 0)`, about 60 a second under wine and 30 on Windows' default timer (`Sleep(16)`); nothing is drawn, the
+  window's content is not defined, a close asked is refused (said). Each line, with its UTC time, goes at once to a new
+  `fake_ed-<date>-<time>.txt` beside it and to the console: where the exe's import of `D3D11CreateDevice` leads
+  (beside the exe, the system folder), each call's result code (the DXGI steps to the swap chain's factory one by one;
+  `Present`'s results other than `S_OK` counted, the first told), the module of the device's method table, the
+  protection before and after each change (or that it was never changed: no `ID3D11Multithread`), each phase's start,
+  end and count of each call; a failing `Present` stops the phases (`GetDeviceRemovedReason` told). After the phases
+  `ClearState` and `Flush` once more, then the swap chain released before its window. A watch thread ends the process
+  (exit code 2) when a call does not come back in 20 s, with a line naming it. At the end, on every way, 2 s for a
+  plugin's last report; the process ends by `TerminateProcess` (no modules' detach, as context_probe), exit code 0
+  when every phase ran, 1 otherwise. Built at the top level with
+  `EDPLUGIN_COMMON_FAKE_ED` (ON by default); its `README.txt` beside it.
 
 ## Use in a plugin
 
