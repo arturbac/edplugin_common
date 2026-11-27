@@ -11,6 +11,12 @@
   phases of frames (the multithread protection off, on, off again, `ClearState` and `Flush` in each frame, after
   `ResizeBuffers`), each line at once to `fake_ed-<date>-<time>.txt` beside it; a call that does not come back in
   20 s ends the process (exit code 2), said. Option `EDPLUGIN_COMMON_FAKE_ED`.
+- `ini/thread.h` (no Windows header) and `src/ini_thread.cc`: the settings thread. `ini_live_start`, instantiated in
+  a plugin, starts a thread under `run_guarded_thread` that looks at the ini once a second (or at once after
+  `ini_thread_wake`), reads it when it changed and publishes it through `ini_keeper_t`, and logs its lines; a fault
+  in a change, and the last attempt spent, freeze the settings. `ini_thread_t::extend` sets, once, another module's
+  step in each pass. No plugin calls it yet. Checked natively with ASan, UBSan and TSan
+  (`test/native/keeper_native.cc`), alone, and under wine with a thread of its own (`test/ini_thread_test.cc`).
 - `ini/view.h` and `ini/keeper.h` (no Windows header): the settings thread's core without the thread, one code for
   every plugin. `ini_view_of` gives a plugin's table and `live3_settings_t` without its types; `ini_keeper_t` turns a
   look at the ini and a read of it into a publication and lines for the log (a file taken away, one that cannot be

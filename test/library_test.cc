@@ -3,8 +3,8 @@
 // modules core (locks, once_flag_t), text (wide, utf8, as_unsigned, try_format_into), log and state_log_t
 // (test/log_test.cc), paths, file, memory, shader and dxgi (test/modules_test.cc), settings_doc
 // (test/settings_doc_test.cc), ini with files and append_to_file's modes (test/ini_test.cc), memory/pe.h
-// (test/pe_test.cc), the context's hooks with a context of the test's own (test/context_test.cc) and guard
-// (test/guard_test.cc).
+// (test/pe_test.cc), the context's hooks with a context of the test's own (test/context_test.cc), guard
+// (test/guard_test.cc) and the settings thread (test/ini_thread_test.cc).
 #include <edplugin_common/core/lock.h>
 #include <edplugin_common/core/once_flag.h>
 #include <edplugin_common/text/format.h>
@@ -31,6 +31,8 @@ auto ini_tests(void (*checker)(bool ok, char const * what)) -> void;
 // test/guard_test.cc
 auto guard_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
 auto guard_log_break_tests(void (*checker)(bool ok, char const * what), std::wstring const & dir) -> void;
+// test/ini_thread_test.cc
+auto ini_thread_tests(void (*checker)(bool ok, char const * what), std::wstring const & here) -> void;
 // test/pe_test.cc
 auto pe_tests(void (*checker)(bool ok, char const * what)) -> void;
 // test/context_test.cc
@@ -257,6 +259,7 @@ auto main() -> int
   GetCurrentDirectoryW(MAX_PATH, here);
   context_tests(check, here);
   guard_tests(check, here);
+  ini_thread_tests(check, here);
   // last: the log is off for the rest of the process after it
   guard_log_break_tests(check, here);
 

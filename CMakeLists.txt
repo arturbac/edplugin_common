@@ -77,6 +77,7 @@ add_library(
   src/names_of.cc
   src/settings_doc.cc
   src/ini.cc
+  src/ini_thread.cc
   src/guard.cc
   src/device_removed.cc
   src/own_table.cc
@@ -136,6 +137,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/ini_test.cc
       test/pe_test.cc
       test/guard_test.cc
+      test/ini_thread_test.cc
       test/context_test.cc
       test/alone_lock.cc
       test/alone_once_flag.cc
@@ -157,6 +159,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_ini_live.cc
       test/alone_ini_view.cc
       test/alone_ini_keeper.cc
+      test/alone_ini_thread.cc
       test/alone_guard.cc
       test/alone_pe.cc
       test/alone_pe_range.cc

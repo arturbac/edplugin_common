@@ -213,8 +213,18 @@ License: MIT (see `LICENSE`).
     flag of a change still set after a fault freezes the settings) and `attempts_spent`. A read that throws publishes
     nothing and freezes nothing. Nothing throws: its lines go back to the caller, one that could not be made is
     counted (`take_lines_lost`).
-  Nothing in it logs; the plugin logs the notes and results. A key taken out of a plugin goes to its withdrawn keys;
-  a key whose type or meaning changes gets a new name, the old one withdrawn.
+  - `thread.h` (no Windows header; the Windows part in `src/ini_thread.cc`): the settings thread.
+    `ini_live_start(table, live, clamp, watch, told, attempts = 8)`, called by a plugin once after its start (never
+    from `DllMain`), makes the view of its types and starts the thread: a keeper, its state (`ini_thread_t`, never
+    deleted) and a thread under `run_guarded_thread` that waits on its event at most a second between passes; nullptr
+    (said in the log) when it cannot. From then on the plugin's watch and `told` are the thread's. A pass: a look at
+    the ini, a read when it changed, then the extension's step; the thread's lines go to the log. A fault in a change
+    starts the body again with the settings frozen; after the last attempt they are frozen too. `ini_thread_wake`
+    from any thread makes a pass at once (with `ini_watch_t::ask_soon`, a read). `ini_thread_t::extend` sets, once,
+    another module's step (`ini_extension_t`: a context and a step with the keeper, which may ask a shorter wait).
+  Nothing in it logs (but the settings thread of `thread.h`, which logs its own lines); the plugin logs the notes and
+  results. A key taken out of a plugin goes to its withdrawn keys; a key whose type or meaning changes gets a new
+  name, the old one withdrawn.
 - `include/edplugin_common/hook/` (code in `src/context.cc`, `src/own_table.cc`, `src/slot.cc`, `src/watch.cc`,
   `src/multithread.cc`) - a plugin's hooks on the game's immediate context, kept when Windows' d3d11 rewrites the
   entries of its own method table (it does so when it switches its variants of the methods):
@@ -519,7 +529,8 @@ the guard's: faults and C++ exceptions, locks let go (also through a call by poi
 nested guard), the codes that are no fault, `guard_t`'s limit and handler, a fault in another module, a thread
 started again, the log batch ended by a fault and by a C++ exception, a fault in the log's own write last, and the guard's cost on
 the CPU printed; the stack overflows are skipped under wine, which ends such a thread instead of raising the
-exception, so they are checked on Windows only) and, when built,
+exception, so they are checked on Windows only; the settings thread of `ini/thread.h`: a changed ini read and
+published, a wake, a fault in a change and the last attempt spent, each freezing the settings) and, when built,
 `context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, the read under
 `__try` on a page that cannot be read, and the hidden window, told as skipped under a wine with no display; run when the
 build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE` and `EDPLUGIN_COMMON_TESTS` on), and `event_report_test.exe`
@@ -550,5 +561,7 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   and after `live3_start`, and `live_fields` on the render thread and on two others; with `-fsanitize=thread` the
   control `test/native/live3_control.cc` (another thread reading the render thread's slot) has to end with a
   reported data race, else the run fails.
-  `test/native/keeper_native.cc` checks `ini/view.h` and `ini/keeper.h`: the view's steps, a keeper's looks, reads,
-  lines and freezes, and reads on one thread while another takes the settings.
+  `test/native/keeper_native.cc` checks `ini/view.h`, `ini/keeper.h` and `ini/thread.h`: the view's steps, a
+  keeper's looks, reads, lines and freezes, reads on one thread while another takes the settings, the settings
+  thread's pass over files of the test's own (the look's rhythm, the extension's wait, an extension set on another
+  thread while passes run) and `ini_live_start` through a start of the test's own.
