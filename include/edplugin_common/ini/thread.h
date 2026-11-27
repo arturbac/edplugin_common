@@ -181,8 +181,8 @@ namespace edplugin_common
     };
 
   ///\brief the library's Windows part (src/ini_thread.cc): the keeper over `view`, the state and the thread, `watch`
-  /// and `told` the thread's from now; the body started again after a fault, `attempts` times at most. Every failure
-  /// logged; nullptr then (no thread)
+  /// and `told` the thread's from now; the body started again after a fault, `attempts` times at most; the module of
+  /// the thread's code pinned (never unloaded). Every failure logged; nullptr then (no thread)
   auto ini_thread_start(ini_view_t const & view, ini_watch_t & watch, ini_told_t && told, int attempts) noexcept
     -> ini_thread_t *;
 

@@ -41,18 +41,32 @@ namespace edplugin_common
         log_line("{} ({})", ini_keeper_t::lines_lost_line, lost);
       }
 
-    ///\brief the thread's body: never returns; after a fault run_guarded_thread starts it again
+    ///\brief the thread's body: never returns; after a fault run_guarded_thread starts it again. A wait on the event
+    /// that fails is slept instead, said once when it starts failing and once when it waits again
     auto body(void * arg) -> DWORD
       {
       ini_thread_t & t{*static_cast<ini_thread_t *>(arg)};
       std::vector<std::string> lines;
       t.body_started(lines);
       log_lines(t, lines);
+      bool wait_failed{};
       for(;;)
         {
         std::uint32_t const wait{t.pass(GetTickCount64(), lines)};
         log_lines(t, lines);
-        WaitForSingleObject(static_cast<HANDLE>(t.wake()), wait);
+        if(WaitForSingleObject(static_cast<HANDLE>(t.wake()), wait) == WAIT_FAILED)
+          {
+          if(not wait_failed)
+            log_line("settings: the settings thread's wait failed (error {}); it sleeps instead, a wake not heard",
+                     GetLastError());
+          wait_failed = true;
+          Sleep(wait);
+          }
+        else if(wait_failed)
+          {
+          log_line("settings: the settings thread waits on its event again");
+          wait_failed = false;
+          }
         }
       }
 
@@ -104,6 +118,12 @@ namespace edplugin_common
       log_line("settings: the settings thread not started (no memory); the ini is not read again while the game runs");
       return nullptr;
       }
+    // the thread runs to the process's end: the module of its code pinned, never unloaded under it
+    HMODULE module{};
+    if(not GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                              reinterpret_cast<LPCWSTR>(&thread_main), &module))
+      log_line("settings: the plugin's module not pinned (error {}); the settings thread runs while it stays loaded",
+               GetLastError());
     HANDLE const thread{CreateThread(nullptr, 0, &thread_main, t, 0, nullptr)};
     if(thread == nullptr)
       {
