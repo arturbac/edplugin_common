@@ -16,17 +16,19 @@
 
 namespace edplugin_common
   {
-  ///\brief the plugin's settings_t behind `void *`, its table and live object behind `void const *` and `void *`; made by
-  /// ini_view_of. The settings objects it takes are the ones its make_settings gave
+  ///\brief the plugin's settings_t behind `void *`, its table and live object behind `void const *` and `void *`;
+  /// made by ini_view_of. The settings objects it takes are the ones its make_settings gave
   struct ini_view_t
     {
-    using clamp_t = void (*)();  ///< the plugin's `void (*)(settings_t &) noexcept`, kept as a function pointer of any type
+    ///\brief the plugin's `void (*)(settings_t &) noexcept`, kept as a function pointer of any type
+    using clamp_t = void (*)();
 
     void const * table;
     void * live;
     clamp_t clamp;
 
     std::size_t (*rows)(void const * table) noexcept;
+    // name, about, is_live and value_text take `row < rows(table)`
     std::string_view (*name)(void const * table, std::size_t row) noexcept;
     std::string_view (*about)(void const * table, std::size_t row) noexcept;
     bool (*is_live)(void const * table, std::size_t row) noexcept;
@@ -43,11 +45,13 @@ namespace edplugin_common
     ///\brief the plugin's clamps on `settings`
     void (*clamp_settings)(clamp_t clamp, void * settings) noexcept;
     ///\brief at_start_changes of `read` against the live object's start fields; throws only what allocation throws
-    void (*start_changes)(void const * table, void const * live, void const * read, ini_read_t const & r, ini_told_t & told,
-                         std::vector<std::string> & notes);
+    void (*start_changes)(void const * table, void const * live, void const * read, ini_read_t const & r,
+                          ini_told_t & told, std::vector<std::string> & notes);
     ///\brief the live rows of `read` published (live3_settings_t::publish); throws only what allocation throws
     void (*publish)(void const * table, void * live, void const * read);
     };
+  // copied by value into a keeper and passed by reference: pointers only
+  static_assert(std::is_trivially_copyable_v<ini_view_t>);
 
   namespace ini_view_detail
     {
@@ -115,11 +119,11 @@ namespace edplugin_common
           reinterpret_cast<plugin_clamp_t>(clamp)(*static_cast<settings_t *>(s));
         }
 
-      static auto start_changes(void const * t, void const * live, void const * read, ini_read_t const & r, ini_told_t & told,
-                                std::vector<std::string> & notes) -> void
+      static auto start_changes(void const * t, void const * live, void const * read, ini_read_t const & r,
+                                ini_told_t & told, std::vector<std::string> & notes) -> void
         {
-        at_start_changes(table(t), *static_cast<settings_t const *>(read), r, static_cast<live_t const *>(live)->start_fields(),
-                         told, notes);
+        at_start_changes(table(t), *static_cast<settings_t const *>(read), r,
+                         static_cast<live_t const *>(live)->start_fields(), told, notes);
         }
 
       static auto publish(void const * t, void * live, void const * read) -> void

@@ -2,8 +2,9 @@
 // (tools/test-native.sh): dxgi/device_removed.h's names of codes, memory/pe_range.h's ranges, memory/pass_modules.h's
 // reading of a list, shader/shader.h's hashes and 3DMigoto's name, also from several threads at once, the module ini
 // without Windows (ini_native.cc) and the settings thread's core (keeper_native.cc), tools/context_probe's decoding
-// of jumps (every form cut at every length: no read past the bytes given) and its text of slots, and tools/event_report's part without Windows (report_checks.h, with an
-// ASCII-only comparison), hook/context_rule.h's pick of the way to watch the context and hook/own_table_mark.h's
+// of jumps (every form cut at every length: no read past the bytes given) and its text of slots, and
+// tools/event_report's part without Windows (report_checks.h, with an ASCII-only comparison), hook/context_rule.h's
+// pick of the way to watch the context and hook/own_table_mark.h's
 // stubs and checks of a mark, from numbers the compiler does not know, and hook/slot_plan.h's order of a write of
 // slots (through memory calls of the test's own, also with a thread reading the slot meanwhile) and
 // hook/watch_class.h's classes of a watched entry and of a table not ours.

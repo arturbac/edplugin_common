@@ -206,11 +206,13 @@ License: MIT (see `LICENSE`).
     without its types (`ini_view_t`): the rows (name, about, live or start-only, a value as the ini writes it) and the
     steps of a read on a settings object of the plugin's own (defaults, the text read, the plugin's clamps, the
     start-only changes, the publication).
-  - `keeper.h` (no Windows header): `ini_keeper_t`, the settings thread's state and steps without the thread: `looked`
-    (a look's result: read or not, a file taken away said), `read` (the file's text: published, the notes as lines; a
-    file that cannot be read or is UTF-16 said once until a read), `body_started` (a restart after a fault in a
-    change freezes the settings) and `attempts_spent`; a read that throws freezes them too. The change runs with a
-    flag in a call of its own. Made once and never deleted by the plugin; its lines go back to the caller.
+  - `keeper.h` (no Windows header): `ini_keeper_t`, the settings thread's state and steps without the thread, made
+    once by `ini_keeper_t::make` (its destructor is not the plugin's): `looked` (a look's result: read or not, a file
+    taken away said), `read` (the file's text: published, the notes as lines; a file that cannot be read said when
+    `ini_watch_t::unreadable` says to, UTF-16 once a session), `body_started` at every start of the thread's body (the
+    flag of a change still set after a fault freezes the settings) and `attempts_spent`. A read that throws publishes
+    nothing and freezes nothing. Nothing throws: its lines go back to the caller, one that could not be made is
+    counted (`take_lines_lost`).
   Nothing in it logs; the plugin logs the notes and results. A key taken out of a plugin goes to its withdrawn keys;
   a key whose type or meaning changes gets a new name, the old one withdrawn.
 - `include/edplugin_common/hook/` (code in `src/context.cc`, `src/own_table.cc`, `src/slot.cc`, `src/watch.cc`,
