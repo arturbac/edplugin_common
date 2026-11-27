@@ -453,13 +453,17 @@ namespace
     s.wait = 5000;
     check(t->pass(19'200, lines) == 1000u and s.steps == 2,
           "ini_thread_t::pass: an extension's longer wait - the look's rhythm");
+    s.wait = 0;
+    check(t->pass(19'300, lines) == ini_thread_t::step_wait_min_ms and s.steps == 3,
+          "ini_thread_t::pass: an extension asking no wait - the shortest wait");
+    s.wait = 5000;
 
     lines.clear();
     t->attempts_spent(lines);
     f.look = ini_look_e::changed;
     f.text = "level = 0\n";
     check(k->frozen() and lines.size() == 1 and has_line(lines, ini_keeper_t::spent_line)
-            and t->pass(20'200, lines) == 1000u and s.steps == 3 and f.reads == 6 and l.acquire().generation == 3u,
+            and t->pass(20'200, lines) == 1000u and s.steps == 4 and f.reads == 6 and l.acquire().generation == 3u,
           "ini_thread_t::pass: frozen after the last attempt - nothing read, the extension's step still runs");
     check(k->take_lines_lost() == 0, "ini_thread_t: no line lost");
     ini_thread_peek_t::destroy(t);

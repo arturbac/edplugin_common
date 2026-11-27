@@ -65,7 +65,7 @@ namespace edplugin_common
     {
     void * context;
     ///\brief on the settings thread, with the keeper; lines for the log into `lines`; the wait it allows before the
-    /// next pass, in milliseconds
+    /// next pass, in milliseconds, below ini_thread_t::step_wait_min_ms taken as that (a step never spins the thread)
     std::uint32_t (*step)(void * context, ini_keeper_t & keeper, std::vector<std::string> & lines) noexcept;
     };
   static_assert(std::is_trivially_copyable_v<ini_extension_t>);
@@ -75,6 +75,8 @@ namespace edplugin_common
   public:
     ///\brief the rhythm of the ini's look (ini_watch_t looks once a second at most)
     static constexpr std::uint32_t look_ms{1000};
+    ///\brief the shortest wait an extension's step can ask for
+    static constexpr std::uint32_t step_wait_min_ms{10};
 
   private:
     ini_keeper_t & keeper_;
@@ -173,7 +175,7 @@ namespace edplugin_common
       std::uint64_t const due{looked_ms_ + look_ms};
       std::uint32_t wait{due > now_ms ? static_cast<std::uint32_t>(due - now_ms) : 0u};
       if(ini_extension_t const * const e{extension_.load(std::memory_order_acquire)})
-        wait = std::min(wait, e->step(e->context, keeper_, lines));
+        wait = std::min(wait, std::max(e->step(e->context, keeper_, lines), step_wait_min_ms));
       return wait;
       }
     };
