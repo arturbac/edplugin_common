@@ -420,11 +420,14 @@ namespace
     }
 
   std::atomic<int> live3_told_lines{};
+  std::atomic<int> live3_acquire_lines{};
 
   auto live3_told(std::string_view line) noexcept -> void
     {
     if(line == live3_settings_t<live3_test_t>::other_thread_line)
       live3_told_lines.fetch_add(1);
+    if(line == live3_settings_t<live3_test_t>::other_acquire_line)
+      live3_acquire_lines.fetch_add(1);
     }
   }  // namespace
 
@@ -566,6 +569,7 @@ namespace
     live3_settings_t<live3_test_t> l;
     l.start(live3_test_t{}, live3_told);
     live3_told_lines.store(0);
+    live3_acquire_lines.store(0);
     std::atomic<int> wrong{};
     std::atomic<int> others_reading{};
     std::atomic<int> step{};  // 1 published once, 2 acquired once, 3 published twice
@@ -613,6 +617,32 @@ namespace
     check(wrong.load() == 0, "live3_settings_t::live_fields: the start before the first acquire, the render thread's slot "
                              "after it, the start on other threads also while it takes publications");
     check(live3_told_lines.load() == 1, "live3_settings_t::live_fields: one line for the other threads");
+    check(live3_acquire_lines.load() == 0, "live3_settings_t::acquire: one thread takes, no line");
+    }
+
+  // acquire on a thread other than the first one's (the contract broken, one after the other: no race): one line,
+  // also after more; a null `told` says nothing
+  auto slots3_other_acquire() -> void
+    {
+    live3_settings_t<live3_test_t> l;
+    l.start(live3_test_t{}, live3_told);
+    live3_acquire_lines.store(0);
+    l.publish(live3_numbered(1), table3);
+    (void)l.acquire();
+    (void)l.acquire();
+    check(live3_acquire_lines.load() == 0, "live3_settings_t::acquire: the first thread's acquires, no line");
+    std::thread{[&]
+                  {
+                  (void)l.acquire();
+                  (void)l.acquire();
+                  }}.join();
+    (void)l.acquire();
+    check(live3_acquire_lines.load() == 1, "live3_settings_t::acquire: acquires on another thread, one line a session");
+    live3_settings_t<live3_test_t> quiet;
+    quiet.start(live3_test_t{}, nullptr);
+    (void)quiet.acquire();
+    std::thread{[&] { (void)quiet.acquire(); }}.join();
+    check(live3_acquire_lines.load() == 1, "live3_settings_t::acquire: no told, no line");
     }
   }  // namespace
 
@@ -629,4 +659,5 @@ auto ini_native_checks(void (*checker)(bool ok, char const * what)) -> void
   slots3_threads();
   slots3_pointer();
   slots3_live_fields();
+  slots3_other_acquire();
   }

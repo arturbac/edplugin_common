@@ -30,6 +30,10 @@ for sanitize in address,undefined thread; do
       if [[ $control_rc -ne 0 && $control_rc -ne 124 && $control_rc -ne 137 ]] \
          && grep -q 'WARNING: ThreadSanitizer: data race' "$dir/live3_control.txt"; then
         echo "live3_control: the data race reported, as it has to be (exit code $control_rc)"
+      elif [[ $control_rc -eq 124 || $control_rc -eq 137 ]]; then
+        echo "live3_control: stopped by the limit of ${NATIVE_TIMEOUT:-600} s (exit code $control_rc," \
+             "$dir/live3_control.txt)"
+        rc=1
       else
         echo "live3_control: no data race reported (exit code $control_rc, $dir/live3_control.txt): the check of" \
              "live3_settings_t::live_fields does not see a slot read on another thread"

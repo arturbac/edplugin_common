@@ -81,6 +81,8 @@ auto main() -> int
   done.store(true, std::memory_order_release);
   other.join();
   render.join();
-  std::printf("live3_control: %d publications ran without a report (%zu)\n", rounds, sizes.load());
+  std::printf("live3_control: %d publications done (%zu); a data race ThreadSanitizer saw, when there is one, is "
+              "reported above\n",
+              rounds, sizes.load());
   return 0;
   }

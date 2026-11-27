@@ -18,9 +18,12 @@
 //     object behind a global atomic pointer (live3_start), so a reader that sees the pointer sees it started;
 //   - publish() on the producer's thread only: the live rows into the slot of its own, then that slot swapped with the
 //     middle one by one exchange; it may allocate (std::vector, std::wstring), the consumer never does;
-//   - acquire() on the consumer's thread only (one at a time, each after the one before): the newest slot when there
-//     is one, else the slot it had; the reference holds until its next acquire. Publications in between are lost;
-//     both sides wait-free;
+//   - acquire() on one consumer thread only, the same one for the whole session (the render thread: the thread of the
+//     first acquire): the newest slot when there is one, else the slot it had; the reference holds until its next
+//     acquire. Publications in between are lost; both sides wait-free. An acquire on another thread breaks the contract
+//     and is said once a session through `told`: when it came first, the render thread's live_fields stays the start
+//     copy; when it comes after, the two threads race for the consumer's slot, and a reference the render thread holds
+//     may show a slot the producer writes;
 //   - start_fields() on any thread, as long as the game runs: the start copy, which nothing writes after start;
 //   - live_fields() on any thread: the slot of the last acquire on the thread that did the first acquire (the render
 //     thread), the start copy before that first acquire, and the start copy on every other thread, said once a
@@ -115,6 +118,10 @@ namespace edplugin_common
       "settings: a live setting read on a thread other than the render thread; the value from the game's start given "
       "there (said once a session)"};
 
+    static constexpr std::string_view other_acquire_line{
+      "settings: live settings taken on a thread other than the render thread (the first one to take them); one "
+      "thread has to take them for the whole session (said once a session)"};
+
   private:
     static constexpr std::uint8_t index_bits{3};
     static constexpr std::uint8_t fresh{4};  ///< in middle_: its slot not yet taken by acquire
@@ -131,6 +138,7 @@ namespace edplugin_common
     std::atomic<bool> first_acquired_{};
     std::thread::id render_thread_{};  ///< written once, before first_acquired_
     mutable std::atomic<bool> other_thread_told_{};
+    std::atomic<bool> other_acquire_told_{};
 
     friend struct detail::live3_settings_peek_t;
 
@@ -139,8 +147,8 @@ namespace edplugin_common
     live3_settings_t(live3_settings_t const &) = delete;
     auto operator=(live3_settings_t const &) -> live3_settings_t & = delete;
 
-    ///\brief the start copy and the three slots `s`, generation 0; `told` (not nullptr) logs the line of a live setting
-    /// read on another thread. Before any other thread reads the object
+    ///\brief the start copy and the three slots `s`, generation 0; `told` logs the lines `other_thread_line` and
+    /// `other_acquire_line`, on the thread that reads (any; nullptr: no line). Before any other thread reads the object
     auto start(settings_t const & s, live3_told_t told) -> void
       {
       start_ = s;
@@ -168,17 +176,21 @@ namespace edplugin_common
       }
 
     ///\brief the newest published slot, or the one taken before when nothing is new; valid to the next acquire. On
-    /// the consumer's thread only; the first acquire's thread is the render thread of live_fields()
+    /// the consumer's thread only, the same for the whole session; the first acquire's thread is the render thread of
+    /// live_fields(), an acquire on another thread is said once through `told` (other_acquire_line)
     [[nodiscard]]
     auto acquire() noexcept -> slot_t const &
       {
       if((middle_.load(std::memory_order_relaxed) & fresh) != 0)
         front_ = middle_.exchange(front_, std::memory_order_acq_rel) & index_bits;
-      if(not first_acquired_.load(std::memory_order_relaxed))
+      if(not first_acquired_.load(std::memory_order_acquire))
         {
         render_thread_ = std::this_thread::get_id();
         first_acquired_.store(true, std::memory_order_release);
         }
+      else if(std::this_thread::get_id() != render_thread_ and not other_acquire_told_.load(std::memory_order_relaxed)
+              and not other_acquire_told_.exchange(true, std::memory_order_relaxed) and told_ != nullptr)
+        told_(other_acquire_line);
       return slots_[front_];
       }
 

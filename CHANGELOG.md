@@ -18,7 +18,8 @@
   consumer), a start copy any thread may read (`start_fields`), `live_fields` for reads in many hooks (the render
   thread's slot, else the start copy and one line a session through the plugin's `live3_told_t`), and `live3_start`
   for a global atomic pointer to it. Checked natively with ASan, UBSan and TSan; `tools/test-native.sh` also runs a
-  control under TSan (`test/native/live3_control.cc`) that has to report a data race.
+  control under TSan (`test/native/live3_control.cc`) that has to report a data race. One consumer thread takes
+  the slots for the whole session; an `acquire` on another thread is said once a session (`other_acquire_line`).
 - The module `hook` (`include/edplugin_common/hook/`, `src/context.cc`, `src/own_table.cc`, `src/slot.cc`,
   `src/watch.cc`, `src/multithread.cc`) and `chain/system_d3d11.h` (`src/system_d3d11.cc`): a plugin's hooks on the
   game's immediate context kept when Windows' d3d11 rewrites its method table. `context_rule.h` picks a table of the
