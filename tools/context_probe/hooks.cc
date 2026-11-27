@@ -384,19 +384,21 @@ namespace
       }
     }
 
-  ///\brief the calls the hooks counted since the last round (on another thread too: the swap chain's, an overlay's)
-  auto tell_counts(hooks_run_t const & run, char const * what, sink_t sink) -> void
+  ///\brief the calls the hooks counted since the last round (on another thread too: the swap chain's, an overlay's),
+  /// each count taken and set to 0 at once, so a call made meanwhile is told in the next round, not lost
+  auto tell_counts(hooks_run_t & run, char const * what, sink_t sink) -> void
     {
     say(sink, "  %s (as worked/passed by each plugin's hook; a hook called itself again: %s):", what,
-        recursed.load(std::memory_order_relaxed) ? "YES" : "no");
-    for(plugin_t const & pl : run.plugins)
+        recursed.exchange(false, std::memory_order_relaxed) ? "YES" : "no");
+    for(plugin_t & pl : run.plugins)
       {
       std::string text;
       for(std::size_t i{}; i != hooked.size(); ++i)
         {
         char part[96]{};
         std::snprintf(part, sizeof part, "%s%s %u/%u", i ? ", " : "", method(hooked[i]).c_str(),
-                      pl.worked[i].load(std::memory_order_relaxed), pl.passed[i].load(std::memory_order_relaxed));
+                      pl.worked[i].exchange(0, std::memory_order_relaxed),
+                      pl.passed[i].exchange(0, std::memory_order_relaxed));
         text += part;
         }
       say(sink, "    plugin %s: %s", pl.name, text.c_str());
@@ -436,8 +438,7 @@ namespace
                     : "ID3D11DeviceContext4 (ANOTHER pointer)");
     if(c4)
       c4->Release();
-    tell_counts(run, what, sink);
-    reset_counts(run);  // from here the calls of others (hooks_again tells them)
+    tell_counts(run, what, sink);  // the counts from 0 again: from here the calls of others (hooks_again tells them)
     }
 
   ///\brief whether a slot of `hooked` in the table the object points at holds a plugin's hook of this program: a
@@ -458,7 +459,7 @@ namespace
   }  // namespace
 
 [[gnu::noinline]]
-auto context_probe::hooks_step(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink) -> hooks_run_t *
+auto context_probe::hooks_attach(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink) -> hooks_run_t *
   {
   say(sink, "");
   say(sink,
@@ -501,6 +502,15 @@ auto context_probe::hooks_step(ID3D11Device * device, ID3D11DeviceContext * cont
   attach<2>(*run, sink);
   run->top_table = *reinterpret_cast<void ***>(context);
   checks(*run, "the attach", sink);
+  return run;
+  }
+
+[[gnu::noinline]]
+auto context_probe::hooks_step(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink) -> hooks_run_t *
+  {
+  hooks_run_t * const run{hooks_attach(device, context, sink)};
+  if(not run)
+    return nullptr;
   calls(*run, "after the attach", sink);
 
   ID3D11Multithread * mt{};
@@ -540,13 +550,25 @@ auto context_probe::hooks_again(hooks_run_t * run, char const * step, sink_t sin
   calls(*run, after, sink);
   }
 
+[[gnu::noinline]]
+auto context_probe::hooks_report(hooks_run_t * run, char const * step, sink_t sink) -> void
+  {
+  if(not run)
+    return;
+  say(sink, "the plugins' hooks at %s:", step);
+  tell_counts(*run, "calls since the last report", sink);
+  checks(*run, step, sink);
+  }
+
 auto context_probe::hooks_runtime_table(hooks_run_t const * run) noexcept -> void **
   {
   return run ? run->runtime : nullptr;
   }
 
-// no object with a destructor in these two: the handler unwinds nothing but the frame (clang-cl catches a fault under
-// __try only from a call: hooks_step and hooks_again are not inlined); what the faulting step had made is left as it is
+// no object with a destructor in these: the handler unwinds nothing but the frame (clang-cl catches a fault under __try
+// only from a call: hooks_step, hooks_again, hooks_attach and hooks_report are not inlined); what the faulting step had
+// made is left as it is. hooks_step and hooks_again call the hooks themselves, so a fault may leave `depth` raised;
+// hooks_attach and hooks_report call none, and their handlers leave `depth` alone
 auto context_probe::hooks_step_caught(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink,
                                       hooks_run_t *& run, DWORD & fault) noexcept -> bool
   {
@@ -572,6 +594,34 @@ auto context_probe::hooks_again_caught(hooks_run_t * run, char const * step, sin
   __except(fault = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
     {
     depth = 0;
+    return false;
+    }
+  return true;
+  }
+
+auto context_probe::hooks_attach_caught(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink,
+                                        hooks_run_t *& run, DWORD & fault) noexcept -> bool
+  {
+  __try
+    {
+    run = hooks_attach(device, context, sink);
+    }
+  __except(fault = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
+    {
+    return false;
+    }
+  return true;
+  }
+
+auto context_probe::hooks_report_caught(hooks_run_t * run, char const * step, sink_t sink, DWORD & fault) noexcept
+  -> bool
+  {
+  __try
+    {
+    hooks_report(run, step, sink);
+    }
+  __except(fault = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER)
+    {
     return false;
     }
   return true;

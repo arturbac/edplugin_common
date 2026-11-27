@@ -7,6 +7,12 @@
 // Flush, after each the watches' classes, the runtime's entries the stubs followed and the protection the library
 // tells. Nothing of it is freed (contract c): the context keeps the tables and the references to the end of the
 // process.
+// The attach and the report draw nothing and set no state of the context (hooks_attach, hooks_report): no Draw,
+// IASetPrimitiveTopology, ClearState or Flush and no change of the multithread protection; the attach puts the hooks
+// and the library asks the context for its interfaces (QueryInterface, Release), the report asks the protection
+// (GetMultithreadProtected) from its own thread. They are for a program that draws itself, with a plugin of this code
+// in its chain; hooks_step and hooks_again add the probe's own calls, the protection on and off and ClearState with
+// Flush.
 #pragma once
 
 #include <windows.h>
@@ -18,6 +24,28 @@ namespace context_probe
   using sink_t = void (*)(char const * line);
 
   struct hooks_run_t;
+
+  ///\brief the three plugins attached to `context` of `device` and the classes their watches see, told through `sink`;
+  /// nothing drawn and no state set (the header's note). The run, kept to the end of the process, or nullptr when the
+  /// context's table holds an earlier device's plugin hooks (a shared table: nothing attached). After it the watches
+  /// are checked only by hooks_report, hooks_again or hooks_step, one thread at a time (hook/watch.h): a thread of
+  /// reports gets the run after hooks_attach returned, by its start or through an atomic with release and acquire
+  [[nodiscard]]
+  auto hooks_attach(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink) -> hooks_run_t *;
+
+  ///\brief at `step`: the calls the hooks counted since the last report (each count taken and set to 0 at once), the
+  /// protection the library tells, the runtime's entries changed since the attach and the classes the watches see;
+  /// nothing drawn and no state set
+  auto hooks_report(hooks_run_t * run, char const * step, sink_t sink) -> void;
+
+  ///\brief hooks_attach under a fault handler, as hooks_step_caught
+  [[nodiscard]]
+  auto hooks_attach_caught(ID3D11Device * device, ID3D11DeviceContext * context, sink_t sink, hooks_run_t *& run,
+                           DWORD & fault) noexcept -> bool;
+
+  ///\brief hooks_report under a fault handler, as hooks_step_caught
+  [[nodiscard]]
+  auto hooks_report_caught(hooks_run_t * run, char const * step, sink_t sink, DWORD & fault) noexcept -> bool;
 
   ///\brief the three plugins attached to `context` of `device`, the calls, the protection and ClearState, each told
   /// through `sink`; the run, kept to the end of the process, or nullptr when the context's table holds an earlier
