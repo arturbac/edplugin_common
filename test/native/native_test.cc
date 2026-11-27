@@ -34,6 +34,8 @@ using namespace std::string_view_literals;
 
 // ini_native.cc
 auto ini_native_checks(void (*checker)(bool ok, char const * what)) -> void;
+// keeper_native.cc
+auto keeper_native_checks(void (*checker)(bool ok, char const * what)) -> void;
 
 namespace
   {
@@ -503,6 +505,7 @@ auto main() -> int
   shader_names_threads();
   context_probe_jumps();
   ini_native_checks(check);
+  keeper_native_checks(check);
   event_report::report_checks(check, event_report::equal_ascii_fold, false);
   std::printf(failures ? "FAILED (%d failure(s))\n" : "PASSED (%d failure(s))\n", failures);
   return failures ? 1 : 0;

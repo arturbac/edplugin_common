@@ -155,6 +155,7 @@ if(PROJECT_IS_TOP_LEVEL)
       test/alone_ini_text.cc
       test/alone_ini_table.cc
       test/alone_ini_live.cc
+      test/alone_ini_view.cc
       test/alone_guard.cc
       test/alone_pe.cc
       test/alone_pe_range.cc

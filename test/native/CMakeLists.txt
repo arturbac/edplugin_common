@@ -11,7 +11,7 @@ set(EDPLUGIN_COMMON_NATIVE_SANITIZE
     "address,undefined"
     CACHE STRING "the -fsanitize= list; thread apart (it does not go with address); empty for none")
 
-add_executable(edplugin_common_native_test native_test.cc ini_native.cc ../../tools/event_report/report.cc)
+add_executable(edplugin_common_native_test native_test.cc ini_native.cc keeper_native.cc ../../tools/event_report/report.cc)
 target_include_directories(edplugin_common_native_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../include
                                                               ${CMAKE_CURRENT_SOURCE_DIR}/../../tools)
 target_compile_features(edplugin_common_native_test PRIVATE cxx_std_23)
