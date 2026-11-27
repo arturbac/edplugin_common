@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `tools/probe_plugin/`: `probe_plugin.dll` 1, an edloader plugin for the plugins' tests that only watches: a d3d11
+  proxy on edworld's skeleton that attaches context_probe's three plugins' hooks to the first device's immediate
+  context and reports every second what they counted, to `probe_plugin-<date>-<time>.txt` in edloader's folder of
+  logs. Option `EDPLUGIN_COMMON_PROBE_PLUGIN`.
 - `tools/fake_ed/`: `fake_ed.exe` 1, a program in the game's place for the plugins' tests: `D3D11CreateDevice`
   imported from `d3d11.dll` as the game does, the device made as the game does, a swap chain on a window shown, five
   phases of frames (the multithread protection off, on, off again, `ClearState` and `Flush` in each frame, after

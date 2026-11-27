@@ -363,6 +363,25 @@ License: MIT (see `LICENSE`).
   plugin's last report; the process ends by `TerminateProcess` (no modules' detach, as context_probe), exit code 0
   when every phase ran, 1 otherwise. Built at the top level with
   `EDPLUGIN_COMMON_FAKE_ED` (ON by default); its `README.txt` beside it.
+- `tools/probe_plugin/` - `probe_plugin.dll`, an edloader plugin for the plugins' tests that only watches: a d3d11.dll
+  proxy on edworld's skeleton (`src/proxy.cc` there): DllMain loads only the system d3d11; at the first export call the
+  next d3d11 is `d3d11.dll` by name under edloader (`EDLOADER_CONFIG_DIR` given), the system copy without it; a second
+  entry on the same thread (a 3Dmigoto that asks for `d3d11.dll` by name) goes to the system copy; every other export
+  forwarded by `edplugin_common_proxy_exports` (its list `d3d11_exports.txt`, a copy of edworld's). At the first
+  device made through it (not a nested one): the d3d11 proxies before it on the stack, each with its version
+  resource's product, description and version and 3Dmigoto named (not refused); the module that asked for each device
+  (the first on the stack that is not a d3d11 proxy); the modules of the device's and its immediate context's method
+  tables (the runtime's context or a wrapper's); whether the next d3d11 is the system copy; context_probe's three
+  plugins attached to that context (`hooks_attach` from `tools/context_probe/hooks.cc`) and a thread that every second
+  writes `hooks_report` (the calls counted since the last report, the protection, the runtime's entries changed, the
+  watches' classes). Of the device and the context it calls `GetImmediateContext` and what the library asks, reads
+  and references only (`QueryInterface`, `AddRef`, `Release`, `GetMultithreadProtected`): nothing drawn, no state set.
+  The lines, with their UTC time, are appended at once to a new `probe_plugin-<date>-<time>.txt` (`-2` and on for a
+  name taken) in `EDLOADER_LOG_DIR` (beside the dll without edloader); the library's own lines in `probe_plugin.log`
+  beside it; no result file said by `OutputDebugString`. The two wrapped exports are not checked by UBSan's function
+  check (the next d3d11 is another module's). Built without tail calls (`-fno-optimize-sibling-calls`:
+  edloader tells a caller's place in the chain by its return address), at the top level with
+  `EDPLUGIN_COMMON_PROBE_PLUGIN` (ON by default); its `README.txt` beside it.
 
 ## Use in a plugin
 
