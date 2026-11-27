@@ -1,7 +1,10 @@
 // The checks of the module ini without Windows (ini/ini_text.h, ini/ini_table.h, ini/live.h), built natively with
 // sanitizers: a line's parts and its comment by the value's kind, each reader, UTF-8 and UTF-16, a table's read with
 // its notes, the start-only settings changed, the lines an ini lacks, the doc's rows, and live_settings_t with a
-// thread that keeps a reference to the start-only fields through publications (ThreadSanitizer).
+// thread that keeps a reference to the start-only fields through publications (ThreadSanitizer); live3_settings_t
+// alone, with a producer, a consumer and a reader of the start copy on threads of their own, its global pointer
+// before and after live3_start, and live_fields on the render thread and on two others (its control:
+// live3_control.cc).
 #include <edplugin_common/ini/ini_table.h>
 #include <edplugin_common/ini/live.h>
 
@@ -366,6 +369,251 @@ namespace
     check(wrong.load() == 0, "live_settings_t: start-only fields read on another thread through 200 publications, the pair "
                              "settings-generation on the publishing one");
     }
+
+  // live3_settings_t: live fields a std::vector and a std::wstring, each publication's values tied to its number, so a
+  // slot read half written shows
+  struct live3_test_t
+    {
+    float level{-1.f};                      ///< live: the publication's number
+    std::vector<std::uint64_t> list{9, 9};  ///< live: (number % 7) + 1 items, each the number
+    std::wstring text{L"start"};            ///< live: the number in digits, 40 times (beyond a short string's buffer)
+    std::uint32_t count{7};                 ///< start-only
+    std::wstring folder{L"C:\\start"};      ///< start-only
+    };
+
+  using row3_t = ini_setting_t<live3_test_t, group_e>;
+  row3_t const rows3[]{
+    {"level", &live3_test_t::level, group_e::first, live, "", "the number"},
+    {"list", ini_list_t<live3_test_t>{&live3_test_t::list}, group_e::first, live, "", "a list"},
+    {"text", &live3_test_t::text, group_e::first, live, "", "a text"},
+    {"count", &live3_test_t::count, group_e::second, at_start, "", "start-only"},
+    {"folder", &live3_test_t::folder, group_e::second, at_start, "", "start-only", {}, {}, value_e::raw},
+  };
+  ini_table_t<live3_test_t, group_e> const table3{rows3, {}};
+
+  auto live3_numbered(int n) -> live3_test_t
+    {
+    live3_test_t s{};
+    s.level = static_cast<float>(n);
+    s.list.assign(static_cast<std::size_t>(n % 7) + 1u, static_cast<std::uint64_t>(n));
+    s.text.clear();
+    for(int i{}; i != 40; ++i)
+      s.text += std::to_wstring(n);
+    s.count = 1000;          // start-only: never published
+    s.folder = L"D:\\read";  // start-only: never published
+    return s;
+    }
+
+  ///\brief the live fields whole, of one publication (`n` from its level) or of the start (-1)
+  auto live3_whole(live3_test_t const & s) -> bool
+    {
+    int const n{static_cast<int>(s.level)};
+    if(n == -1)
+      return s.list == std::vector<std::uint64_t>{9, 9} and s.text == L"start";
+    live3_test_t const expected{live3_numbered(n)};
+    return s.list == expected.list and s.text == expected.text;
+    }
+
+  auto live3_start_only(live3_test_t const & s) -> bool
+    {
+    return s.count == 7u and s.folder == L"C:\\start";
+    }
+
+  std::atomic<int> live3_told_lines{};
+
+  auto live3_told(std::string_view line) noexcept -> void
+    {
+    if(line == live3_settings_t<live3_test_t>::other_thread_line)
+      live3_told_lines.fetch_add(1);
+    }
+  }  // namespace
+
+namespace edplugin_common::detail
+  {
+  struct live3_settings_peek_t
+    {
+    template<typename settings_t>
+    [[nodiscard]]
+    static auto first_acquired(live3_settings_t<settings_t> const & l) noexcept -> bool
+      {
+      return l.first_acquired_.load(std::memory_order_acquire);
+      }
+
+    ///\brief back_, middle_ (with fresh) and front_ as the digits of one number
+    template<typename settings_t>
+    [[nodiscard]]
+    static auto indices(live3_settings_t<settings_t> const & l) noexcept -> unsigned
+      {
+      return static_cast<unsigned>(l.back_) * 100u + static_cast<unsigned>(l.middle_.load()) * 10u + l.front_;
+      }
+    };
+  }  // namespace edplugin_common::detail
+
+namespace
+  {
+  using edplugin_common::detail::live3_settings_peek_t;
+
+  auto slots3_sequence() -> void
+    {
+    live3_settings_t<live3_test_t> unstarted;
+    check(live3_settings_peek_t::indices(unstarted) == 12u and unstarted.acquire().generation == 0u
+            and live3_settings_peek_t::indices(unstarted) == 12u,
+          "live3_settings_t: without start the indices 0, 1, 2 and nothing fresh");
+
+    live3_settings_t<live3_test_t> l;
+    l.start(live3_test_t{}, live3_told);
+    check(l.acquire().generation == 0u and l.acquire().settings.level == -1.f and live3_whole(l.acquire().settings),
+          "live3_settings_t: before a publication acquire gives the start");
+    l.publish(live3_numbered(1), table3);
+    live3_settings_t<live3_test_t>::slot_t const & one{l.acquire()};
+    check(one.generation == 1u and one.settings.level == 1.f and live3_whole(one.settings) and live3_start_only(one.settings),
+          "live3_settings_t: publish copies the live rows only, the generation one more");
+    check(&l.acquire() == &one, "live3_settings_t: nothing new, the same slot");
+    l.publish(live3_numbered(2), table3);
+    l.publish(live3_numbered(3), table3);
+    live3_settings_t<live3_test_t>::slot_t const & three{l.acquire()};
+    check(three.generation == 3u and three.settings.level == 3.f and live3_whole(three.settings),
+          "live3_settings_t: two publications, acquire takes the newest");
+    bool mixed{true};
+    for(int n{4}; n != 40; ++n)
+      {
+      l.publish(live3_numbered(n), table3);
+      if(n % 3 == 0)
+        {
+        live3_settings_t<live3_test_t>::slot_t const & s{l.acquire()};
+        mixed = mixed and s.generation == static_cast<std::uint32_t>(n) and live3_whole(s.settings);
+        }
+      }
+    check(mixed, "live3_settings_t: publications and acquires mixed, each slot whole and the newest");
+    check(l.start_fields().level == -1.f and live3_whole(l.start_fields()) and live3_start_only(l.start_fields()),
+          "live3_settings_t: start_fields is the start, its live fields too");
+    check(live3_told_lines.load() == 0, "live3_settings_t: one thread, no line");
+    }
+
+  // the producer and the consumer on threads of their own, a third reading start_fields
+  auto slots3_threads() -> void
+    {
+    live3_settings_t<live3_test_t> l;
+    l.start(live3_test_t{}, live3_told);
+    constexpr int publications{3000};
+    std::atomic<bool> done{};
+    std::atomic<int> wrong{};
+    std::atomic<long> taken{};
+    std::thread consumer{[&]
+                           {
+                             std::uint32_t last{};
+                             while(not done.load(std::memory_order_acquire))
+                               {
+                               live3_settings_t<live3_test_t>::slot_t const & s{l.acquire()};
+                               if(s.generation < last or not live3_whole(s.settings)
+                                  or (s.generation != 0u and s.settings.level != static_cast<float>(s.generation)))
+                                 wrong.fetch_add(1);
+                               if(s.generation != last)
+                                 taken.fetch_add(1, std::memory_order_relaxed);
+                               last = s.generation;
+                               }
+                             if(l.acquire().generation != static_cast<std::uint32_t>(publications))
+                               wrong.fetch_add(1);
+                           }};
+    std::thread start_reader{[&]
+                               {
+                                 while(not done.load(std::memory_order_acquire))
+                                   if(not live3_start_only(l.start_fields()) or l.start_fields().level != -1.f
+                                      or not live3_whole(l.start_fields()))
+                                     wrong.fetch_add(1);
+                               }};
+    for(int n{1}; n <= publications; ++n)
+      l.publish(live3_numbered(n), table3);
+    done.store(true, std::memory_order_release);
+    consumer.join();
+    start_reader.join();
+    check(wrong.load() == 0 and taken.load() > 0,
+          "live3_settings_t: a producer and a consumer on threads of their own, each slot whole, generations in order, "
+          "the last one taken; start_fields on a third");
+    }
+
+  // the global pointer: nullptr before live3_start, the object started after
+  auto slots3_pointer() -> void
+    {
+    static constinit std::atomic<live3_settings_t<live3_test_t> *> live3{nullptr};
+    std::atomic<bool> reading{};
+    std::atomic<int> wrong{};
+    std::atomic<long> empty{};
+    std::thread reader{[&]
+                         {
+                           reading.store(true, std::memory_order_release);
+                           live3_settings_t<live3_test_t> * p{};
+                           while((p = live3.load(std::memory_order_acquire)) == nullptr)
+                             empty.fetch_add(1, std::memory_order_relaxed);
+                           if(not live3_start_only(p->start_fields()) or not live3_whole(p->start_fields()))
+                             wrong.fetch_add(1);
+                         }};
+    while(not reading.load(std::memory_order_acquire))
+      std::this_thread::yield();
+    for(long const at{empty.load(std::memory_order_relaxed)}; empty.load(std::memory_order_relaxed) == at;)
+      std::this_thread::yield();
+    live3_start(live3, live3_test_t{}, live3_told);
+    reader.join();
+    check(wrong.load() == 0 and empty.load() > 0, "live3_start: a reader before the pointer sees nullptr, after it the object started");
+    delete live3.exchange(nullptr);  // a plugin never deletes it; here for LeakSanitizer
+    }
+
+  // live_fields (one render thread, reads on other threads): the render thread before its first acquire gets the
+  // start; two other threads read until they see the first acquire, then 2000 more, and get the start only, while the
+  // render thread takes two publications with a std::vector and a std::wstring; one line about them
+  auto slots3_live_fields() -> void
+    {
+    live3_settings_t<live3_test_t> l;
+    l.start(live3_test_t{}, live3_told);
+    live3_told_lines.store(0);
+    std::atomic<int> wrong{};
+    std::atomic<int> others_reading{};
+    std::atomic<int> step{};  // 1 published once, 2 acquired once, 3 published twice
+    auto other{[&]
+                 {
+                   others_reading.fetch_add(1, std::memory_order_release);
+                   bool seen{};
+                   for(int after{}; after != 2000;)
+                     {
+                     live3_test_t const & s{l.live_fields()};
+                     if(s.level != -1.f or not live3_whole(s) or not live3_start_only(s))
+                       wrong.fetch_add(1);
+                     if(seen)
+                       ++after;
+                     else
+                       seen = live3_settings_peek_t::first_acquired(l);
+                     }
+                 }};
+    std::thread other_1{other};
+    std::thread other_2{other};
+    std::thread render{[&]
+                         {
+                           while(others_reading.load(std::memory_order_acquire) != 2 or step.load(std::memory_order_acquire) != 1)
+                             std::this_thread::yield();
+                           live3_test_t const & before{l.live_fields()};
+                           if(before.level != -1.f or not live3_whole(before))
+                             wrong.fetch_add(100);
+                           if(l.acquire().generation != 1u or l.live_fields().level != 1.f or not live3_whole(l.live_fields()))
+                             wrong.fetch_add(100);
+                           step.store(2, std::memory_order_release);
+                           while(step.load(std::memory_order_acquire) != 3)
+                             std::this_thread::yield();
+                           if(l.acquire().generation != 2u or l.live_fields().level != 2.f or not live3_whole(l.live_fields()))
+                             wrong.fetch_add(100);
+                         }};
+    l.publish(live3_numbered(1), table3);
+    step.store(1, std::memory_order_release);
+    while(step.load(std::memory_order_acquire) != 2)
+      std::this_thread::yield();
+    l.publish(live3_numbered(2), table3);
+    step.store(3, std::memory_order_release);
+    render.join();
+    other_1.join();
+    other_2.join();
+    check(wrong.load() == 0, "live3_settings_t::live_fields: the start before the first acquire, the render thread's slot "
+                             "after it, the start on other threads also while it takes publications");
+    check(live3_told_lines.load() == 1, "live3_settings_t::live_fields: one line for the other threads");
+    }
   }  // namespace
 
 auto ini_native_checks(void (*checker)(bool ok, char const * what)) -> void
@@ -377,4 +625,8 @@ auto ini_native_checks(void (*checker)(bool ok, char const * what)) -> void
   start_only();
   files();
   slots();
+  slots3_sequence();
+  slots3_threads();
+  slots3_pointer();
+  slots3_live_fields();
   }

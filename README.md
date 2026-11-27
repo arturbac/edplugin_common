@@ -190,6 +190,14 @@ License: MIT (see `LICENSE`).
   - `live.h` (no Windows header): `live_settings_t`, two slots and an atomic pointer; `publish` copies the live rows
     field by field into the slot not in use and adds one to its generation. The start-only fields never change after
     `start`: any thread may read them; the live fields and the generation only the publishing thread.
+    `live3_settings_t`, beside it, for a producer thread other than the consumer: three slots and a fourth copy of
+    the settings at the start. `publish` (producer only) copies the live rows into its own slot and swaps it with
+    the middle one by one exchange; `acquire` (consumer only, one at a time) takes the newest slot, valid to its next
+    `acquire`; publications in between are lost; both sides wait-free, the consumer never allocates. `start_fields`
+    (any thread) is the start copy. `live_fields` gives the slot of the last `acquire` on the thread of the first one
+    (the render thread), the start copy before it and on any other thread, said once a session through the plugin's
+    `live3_told_t`. `live3_start` makes the object for a global `constinit std::atomic<live3_settings_t<...> *>`
+    (never deleted), starts it and stores its address with release: nullptr before.
   - `ini.h`: `complete_ini` (a new file `create_new` with `\r\n`, one that is there `append_existing` by its line ends;
     UTF-16 and a file that cannot be read left alone), `read_ini_file`, `ini_watch_t` (at most once a second by the
     last write; a file taken away is said once and leaves the settings as they are; `ask_soon` from any thread).
@@ -487,4 +495,8 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   and `slots.h`)
   built natively with clang++ and its compiler-rt sanitizers, with `-fsanitize=address,undefined` and with
   `-fsanitize=thread`, and run; no wine and no MSVC. Each configure, build and run is limited to `NATIVE_TIMEOUT`
-  seconds (600 unless set); a run stopped by the limit is said with its exit code.
+  seconds (600 unless set); a run stopped by the limit is said with its exit code. `live3_settings_t` is checked
+  with a producer, a consumer and a reader of the start copy on threads of their own, the global pointer read before
+  and after `live3_start`, and `live_fields` on the render thread and on two others; with `-fsanitize=thread` the
+  control `test/native/live3_control.cc` (another thread reading the render thread's slot) has to end with a
+  reported data race, else the run fails.
