@@ -1,5 +1,6 @@
 # edplugin_common's headers without a Windows header (memory/pe_range.h, memory/pass_modules.h's reading of a list,
-# shader/shader.h, ini/ini_text.h, ini/ini_table.h, ini/live.h, hook/context_rule.h, hook/own_table_mark.h,
+# shader/shader.h, ini/ini_text.h, ini/ini_table.h, ini/live.h, ini/view.h, ini/keeper.h,
+# hook/context_rule.h, hook/own_table_mark.h,
 # hook/slot_plan.h, hook/watch_class.h, tools/context_probe's jump.h and slots.h) and
 # tools/event_report's part without one (report.cc, its checks in report_checks.h), built natively (Linux, clang++) with sanitizers: tools/test-native.sh
 # configures it twice, with address,undefined and with thread (then also the control live3_control.cc). A project of

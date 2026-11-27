@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `ini/view.h` and `ini/keeper.h` (no Windows header): the settings thread's core without the thread, one code for
+  every plugin. `ini_view_of` gives a plugin's table and `live3_settings_t` without its types; `ini_keeper_t` turns a
+  look at the ini and a read of it into a publication and lines for the log (a file taken away, one that cannot be
+  read, UTF-16, the read's notes), and freezes the settings after a fault in a change, after the last attempt or when
+  a read throws. Checked natively with ASan, UBSan and TSan (`test/native/keeper_native.cc`) and alone.
 - `tools/context_probe/`: `context_probe.exe` 7, for the module `hook` on Windows: on each device three plugins attach
   with the library's code (`hooks.cc`: A and B by the rule, C asking for a table of its own), hook `Draw`,
   `IASetPrimitiveTopology`, `ClearState` and `Flush` and count their calls; the calls through `ID3D11DeviceContext4`,

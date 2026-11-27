@@ -202,6 +202,15 @@ License: MIT (see `LICENSE`).
   - `ini.h`: `complete_ini` (a new file `create_new` with `\r\n`, one that is there `append_existing` by its line ends;
     UTF-16 and a file that cannot be read left alone), `read_ini_file`, `ini_watch_t` (at most once a second by the
     last write; a file taken away is said once and leaves the settings as they are; `ask_soon` from any thread).
+  - `view.h` (no Windows header): `ini_view_of(table, live, clamp)` - a plugin's table and `live3_settings_t` seen
+    without its types (`ini_view_t`): the rows (name, about, live or start-only, a value as the ini writes it) and the
+    steps of a read on a settings object of the plugin's own (defaults, the text read, the plugin's clamps, the
+    start-only changes, the publication).
+  - `keeper.h` (no Windows header): `ini_keeper_t`, the settings thread's state and steps without the thread: `looked`
+    (a look's result: read or not, a file taken away said), `read` (the file's text: published, the notes as lines; a
+    file that cannot be read or is UTF-16 said once until a read), `body_started` (a restart after a fault in a
+    change freezes the settings) and `attempts_spent`; a read that throws freezes them too. The change runs with a
+    flag in a call of its own. Made once and never deleted by the plugin; its lines go back to the caller.
   Nothing in it logs; the plugin logs the notes and results. A key taken out of a plugin goes to its withdrawn keys;
   a key whose type or meaning changes gets a new name, the old one withdrawn.
 - `include/edplugin_common/hook/` (code in `src/context.cc`, `src/own_table.cc`, `src/slot.cc`, `src/watch.cc`,
@@ -501,3 +510,5 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   and after `live3_start`, and `live_fields` on the render thread and on two others; with `-fsanitize=thread` the
   control `test/native/live3_control.cc` (another thread reading the render thread's slot) has to end with a
   reported data race, else the run fails.
+  `test/native/keeper_native.cc` checks `ini/view.h` and `ini/keeper.h`: the view's steps, a keeper's looks, reads,
+  lines and freezes, and reads on one thread while another takes the settings.
