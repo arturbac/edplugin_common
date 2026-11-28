@@ -1,4 +1,4 @@
-// edplugin_common - the settings thread [u] of a plugin: its state, one pass of its loop without the thread and without
+// edplugin_common - the settings thread of a plugin: its state, one pass of its loop without the thread and without
 // Windows, the point another module extends it at, and the start a plugin instantiates for its own settings.
 //
 // The state (ini_thread_t) is made once when the thread starts and never deleted: the keeper (ini/keeper.h), the ini's
@@ -7,14 +7,18 @@
 // the ini, when due once a second, and a read of it when it changed (the keeper's steps); then the extension's step,
 // when there is one; the wait until the next pass back, the look's rhythm or shorter when the extension asks.
 //
-// The extension point: an atomic pointer, nullptr until another module (the connection to edtune) sets it, once, with
-// release; each pass loads it with acquire. Its step runs on the settings thread with the keeper; nothing of the
-// module's types shows here.
+// The extension point: an atomic pointer, nullptr until another module (the connection to edtune, a part of the code
+// linked into the plugin's dll) sets it, once, with release; each pass loads it with acquire. Its step runs on the
+// settings thread with the keeper; nothing of the module's types shows here.
 //
 // The start: a plugin, after its synchronous first read and live3_start, calls ini_live_start with its table, its live
 // object, its clamps, its watch (marked seen at the start) and what was said at the start; the view of its types is
 // made here, and the library's Windows part (src/ini_thread.cc) makes the state and the thread. From then on the watch
 // and what was said are the settings thread's only. Nothing here logs: the lines go back to the caller.
+//
+// The body runs under run_guarded_thread, which starts it again after any fault but a stack overflow, also one in
+// another dll (a system call reading the file), where guard_t would turn its part off; a lock that dll held then may
+// stay held.
 #pragma once
 
 #include <edplugin_common/ini/ini.h>
@@ -60,7 +64,9 @@ namespace edplugin_common
   class ini_thread_t;
 
   ///\brief another module's step in each pass of the settings thread, after the ini's; set once (ini_thread_t::extend)
-  /// and kept to the end of the game
+  /// and kept to the end of the game. The module is linked into the same dll as the plugin, with the same build of the
+  /// library (the keeper is a class, not an interface across dlls); its step runs on the settings thread, and the
+  /// keeper's steps of the thread (body_started, attempts_spent, looked, read) are not the extension's to call
   struct ini_extension_t
     {
     void * context;
@@ -116,6 +122,7 @@ namespace edplugin_common
     ini_thread_t(ini_thread_t const &) = delete;
     auto operator=(ini_thread_t const &) -> ini_thread_t & = delete;
 
+    ///\brief the keeper, on the settings thread only (its body and the extension's step): it is not shared
     [[nodiscard]]
     auto keeper() noexcept -> ini_keeper_t &
       {
@@ -181,8 +188,11 @@ namespace edplugin_common
     };
 
   ///\brief the library's Windows part (src/ini_thread.cc): the keeper over `view`, the state and the thread, `watch`
-  /// and `told` the thread's from now; the body started again after a fault, `attempts` times at most; the module of
-  /// the thread's code pinned (never unloaded). Every failure logged; nullptr then (no thread)
+  /// and `told` the thread's from now; the body started again after a fault, `attempts` times at most (below 1 taken
+  /// as 1); the module of the thread's code pinned (never unloaded). `watch` and what `view` points at live to the
+  /// process's end (globals, or never deleted); after the start the caller only calls `watch.ask_soon()`, from any
+  /// thread. Every failure logged; nullptr then (no thread), also for a `watch` without a path; `told` is not the
+  /// caller's after the call
   auto ini_thread_start(ini_view_t const & view, ini_watch_t & watch, ini_told_t && told, int attempts) noexcept
     -> ini_thread_t *;
 
@@ -191,7 +201,10 @@ namespace edplugin_common
 
   ///\brief the settings thread of the plugin's `table` and `live` (started), with its clamps (`clamp`, nullptr: none),
   /// its ini's `watch` (marked seen at the start) and what was said at the start (`told`): ini_thread_start over the
-  /// view of the plugin's types. Once a session; on the plugin's thread after its start, never from DllMain
+  /// view of the plugin's types. `table`, `live`, `clamp` and `watch` live to the process's end (globals, or never
+  /// deleted); after the start the plugin only calls `watch.ask_soon()`, from any thread. `attempts` below 1 is taken
+  /// as 1. nullptr (said in the log) when no thread runs; `told` is not the plugin's after the call either way. Once a
+  /// session; on the plugin's thread after its start, never from DllMain
   template<typename settings_t, typename group_t>
   auto ini_live_start(ini_table_t<settings_t, group_t> const & table, live3_settings_t<settings_t> & live,
                       std::type_identity_t<void (*)(settings_t &) noexcept> clamp, ini_watch_t & watch,

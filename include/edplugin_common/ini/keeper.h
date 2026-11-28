@@ -1,4 +1,4 @@
-// edplugin_common - the settings thread's [u] state and steps, without threads and without Windows: what a look at the
+// edplugin_common - the settings thread's state and steps, without threads and without Windows: what a look at the
 // ini and a read of it do to a plugin's settings, through its view (ini/view.h), one code for every plugin. The thread,
 // its guard and the file's reading are the caller's (a Windows overlay); nothing here logs: the lines go back to it.
 //
@@ -41,7 +41,8 @@ namespace edplugin_common
     {
   public:
     static constexpr std::string_view fault_line{"a fault while the settings were being changed"};
-    static constexpr std::string_view spent_line{"the settings thread stopped after its last attempt"};
+    static constexpr std::string_view spent_line{
+      "the settings thread stopped after its last attempt or a stack overflow"};
     static constexpr std::string_view memory_line{
       "no memory while the ini was being read; nothing published, the settings stay as they were, read again at the "
       "next change"};

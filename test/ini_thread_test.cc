@@ -1,9 +1,9 @@
-// The checks of the settings thread [u] on Windows (ini/thread.h, src/ini_thread.cc), under wine, with a table of the
+// The checks of the settings thread on Windows (ini/thread.h, src/ini_thread.cc), under wine, with a table of the
 // test's own: the thread started by ini_live_start reads a changed ini and publishes it, a wake makes a pass at once, a
 // fault in a change starts the body again and freezes the settings, an extension that always faults spends the
-// attempts and freezes them too, each said in the log. Each check has its own live object, watch and ini in the
-// directory `ini_thread` under `dir`; all of them are never deleted, as in a plugin: the threads go on to the
-// process's end, waiting.
+// attempts and freezes them too, each said in the log; a watch without a path starts no thread, said. Each check has
+// its own live object, watch and ini in the directory `ini_thread` under `dir`; all of them are never deleted, as in a
+// plugin: the threads go on to the process's end, waiting.
 #include <edplugin_common/file/file.h>
 #include <edplugin_common/ini/thread.h>
 #include <edplugin_common/log/log.h>
@@ -79,7 +79,7 @@ namespace
     {
     plugin_t p{new live3_settings_t<thread_settings_t>{}, new ini_watch_t{}, nullptr};
     p.live->start(thread_settings_t{}, &told);
-    put(ini, text);
+    check(put(ini, text), "settings thread: the ini written before the start");
     p.watch->set_path(ini);
     p.watch->mark_seen();
     p.thread = ini_live_start(table, *p.live, &clamp, *p.watch, ini_told_t{}, attempts);
@@ -115,24 +115,26 @@ namespace
       return;
     Sleep(1200);
     check(p.live->acquire().generation == 0u, "settings thread: an ini not changed since the start is not read");
-    put(ini, "level = 1.5\ncount = 9\n");
+    check(put(ini, "level = 1.5\ncount = 9\n"), "settings thread: the ini written");
     check(published(p, 0, 3000) and p.live->acquire().settings.level == 1.5f
             and p.live->acquire().settings.count == 7u,
           "settings thread: a changed ini read and published within its look's second, start-only fields as at the "
           "start");
-    put(ini, "level = 9\n");
+    check(put(ini, "level = 9\n"), "settings thread: the ini written");
     check(published(p, 1, 3000) and p.live->acquire().settings.level == 4.f,
           "settings thread: the plugin's clamps on a read");
-    // two wakes 100 ms apart, each asked by ask_soon: two reads within 400 ms. Without the wakes the asks wait for the
-    // look's rhythm of a second: one read at most in less than a second (checked, as a slow Sleep can stretch it)
+    // two wakes, each asked by ask_soon, the second after the first read: two reads in less than 900 ms. Without the
+    // wakes the asks wait for the look's rhythm of a second: one read at most in less than a second (checked, as a
+    // slow Sleep can stretch it). The second wake waits for the first read: the event (auto-reset) never takes both
+    // as one
     std::uint32_t const before{p.live->acquire().generation};
     ULONGLONG const asked{GetTickCount64()};
     p.watch->ask_soon();
     ini_thread_wake(*p.thread);
-    Sleep(100);
+    bool const one{published(p, before, 300)};
     p.watch->ask_soon();
     ini_thread_wake(*p.thread);
-    bool const two{published(p, before + 1, 300)};
+    bool const two{one and published(p, before + 1, 300)};
     ULONGLONG const took{GetTickCount64() - asked};
     check(two and took < 900u, "ini_thread_wake: a pass at once, two wakes two reads (asked by ask_soon)");
     }
@@ -146,14 +148,14 @@ namespace
       check(false, "ini_live_start: the settings thread started (a fault in a change)");
       return;
       }
-    put(ini, "level = 2\n");
+    check(put(ini, "level = 2\n"), "settings thread: the ini written (a fault in a change)");
     check(published(p, 0, 3000) and p.live->acquire().settings.level == 2.f,
           "settings thread: read before the fault");
-    put(ini, "level = 3\n");
+    check(put(ini, "level = 3\n"), "settings thread: the ini written (a fault in a change)");
     check(logged(log, ini_keeper_t::fault_line, 5000),
           "settings thread: a fault in a change - the body started again, the settings frozen, said");
     std::uint32_t const frozen{p.live->acquire().generation};
-    put(ini, "level = 0.25\n");
+    check(put(ini, "level = 0.25\n"), "settings thread: the ini written (a fault in a change)");
     p.watch->ask_soon();
     ini_thread_wake(*p.thread);
     Sleep(1500);
@@ -186,9 +188,19 @@ namespace
     check(logged(log, ini_keeper_t::spent_line, 6000) and logged(log, "thread settings: stopped after 2 fault(s)", 1000)
             and always_faults.load(std::memory_order_relaxed) == 2,
           "settings thread: an extension that always faults - the attempts spent, the settings frozen, said");
-    put(ini, "level = 1\n");
+    check(put(ini, "level = 1\n"), "settings thread: the ini written (attempts spent)");
     Sleep(1500);
     check(p.live->acquire().generation == 0u, "settings thread: after the last attempt nothing read");
+    }
+
+  auto no_path(std::wstring const & log) -> void
+    {
+    auto * const live{new live3_settings_t<thread_settings_t>{}};
+    live->start(thread_settings_t{}, &told);
+    auto * const watch{new ini_watch_t{}};
+    check(ini_live_start(table, *live, &clamp, *watch, ini_told_t{}, 8) == nullptr
+            and logged(log, "the ini's watch has no path", 1000),
+          "ini_live_start: a watch without a path - no thread, said");
     }
   }  // namespace
 
@@ -196,12 +208,15 @@ auto ini_thread_tests(void (*checker)(bool ok, char const * what), std::wstring 
   {
   check = checker;
   closed = static_cast<std::uint8_t *>(VirtualAlloc(nullptr, 4096, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS));
+  check(closed != nullptr, "ini_thread_tests: a page that cannot be read or written");
   std::wstring const dir{here + L"\\ini_thread"};
-  CreateDirectoryW(dir.c_str(), nullptr);
+  check(CreateDirectoryW(dir.c_str(), nullptr) != FALSE or GetLastError() == ERROR_ALREADY_EXISTS,
+        "ini_thread_tests: the directory made");
   std::wstring const log{dir + L"\\ini_thread.log"};
   log_open(dir, L"ini_thread");
   reads(dir);
   fault_in_change(dir, log);
   attempts_spent(dir, log);
+  no_path(log);
   log_close();
   }

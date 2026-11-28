@@ -216,12 +216,18 @@ License: MIT (see `LICENSE`).
   - `thread.h` (no Windows header; the Windows part in `src/ini_thread.cc`): the settings thread.
     `ini_live_start(table, live, clamp, watch, told, attempts = 8)`, called by a plugin once after its start (never
     from `DllMain`), makes the view of its types and starts the thread: a keeper, its state (`ini_thread_t`, never
-    deleted) and a thread under `run_guarded_thread` that waits on its event at most a second between passes; nullptr
-    (said in the log) when it cannot. From then on the plugin's watch and `told` are the thread's. A pass: a look at
-    the ini, a read when it changed, then the extension's step; the thread's lines go to the log. A fault in a change
-    starts the body again with the settings frozen; after the last attempt they are frozen too. `ini_thread_wake`
-    from any thread makes a pass at once (with `ini_watch_t::ask_soon`, a read). `ini_thread_t::extend` sets, once,
-    another module's step (`ini_extension_t`: a context and a step with the keeper, which may ask a shorter wait).
+    deleted) and a thread under `run_guarded_thread` that waits on its event at most a second between passes; the
+    plugin's module is pinned (never unloaded under the thread). nullptr (said in the log) when it cannot, also for a
+    watch without a path. `table`, `live`, `clamp` and `watch` live to the process's end (globals, or never deleted);
+    from then on the plugin's watch and `told` are the thread's, and the plugin only calls `watch.ask_soon()`, from
+    any thread. A pass: a look at the ini, a read when it changed, then the extension's step; the thread's lines go to
+    the log. A fault starts the body again (`attempts` times at most, below 1 taken as 1; a fault in another module
+    too); a fault in a change freezes the settings, and the last attempt spent (or a stack overflow) freezes them too.
+    A wait on the event that fails is slept instead, said once, and once when it waits again. `ini_thread_wake` from
+    any thread makes a pass at once (with `ini_watch_t::ask_soon`, a read). `ini_thread_t::extend` sets, once, another
+    module's step (`ini_extension_t`: a context and a step with the keeper on the settings thread, which may ask a
+    shorter wait, the wait it asks taken as `ini_thread_t::step_wait_min_ms` (10 ms) at least); the module is linked
+    into the plugin's dll with the same build of the library.
   Nothing in it logs (but the settings thread of `thread.h`, which logs its own lines); the plugin logs the notes and
   results. A key taken out of a plugin goes to its withdrawn keys; a key whose type or meaning changes gets a new
   name, the old one withdrawn.
@@ -530,7 +536,8 @@ nested guard), the codes that are no fault, `guard_t`'s limit and handler, a fau
 started again, the log batch ended by a fault and by a C++ exception, a fault in the log's own write last, and the guard's cost on
 the CPU printed; the stack overflows are skipped under wine, which ends such a thread instead of raising the
 exception, so they are checked on Windows only; the settings thread of `ini/thread.h`: a changed ini read and
-published, a wake, a fault in a change and the last attempt spent, each freezing the settings) and, when built,
+published, two wakes two reads, a fault in a change and the last attempt spent, the last two freezing the settings,
+and a watch without a path) and, when built,
 `context_probe_test.exe` (the following of entries through trampolines it writes itself, without d3d11, the read under
 `__try` on a page that cannot be read, and the hidden window, told as skipped under a wine with no display; run when the
 build's `CMakeCache.txt` has `EDPLUGIN_COMMON_CONTEXT_PROBE` and `EDPLUGIN_COMMON_TESTS` on), and `event_report_test.exe`
@@ -563,5 +570,6 @@ Sanitizers, in test builds only (a player gets the release build, without them):
   reported data race, else the run fails.
   `test/native/keeper_native.cc` checks `ini/view.h`, `ini/keeper.h` and `ini/thread.h`: the view's steps, a
   keeper's looks, reads, lines and freezes, reads on one thread while another takes the settings, the settings
-  thread's pass over files of the test's own (the look's rhythm, the extension's wait, an extension set on another
-  thread while passes run) and `ini_live_start` through a start of the test's own.
+  thread's pass over files of the test's own (the look's rhythm, the extension's wait, an extension asking no wait
+  or less than the shortest, an extension set on another thread while passes run) and `ini_live_start` through a
+  start of the test's own.

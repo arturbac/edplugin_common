@@ -14,10 +14,11 @@
 - `ini/thread.h` (no Windows header) and `src/ini_thread.cc`: the settings thread. `ini_live_start`, instantiated in
   a plugin, starts a thread under `run_guarded_thread` that looks at the ini once a second (or at once after
   `ini_thread_wake`), reads it when it changed and publishes it through `ini_keeper_t`, and logs its lines; a fault
-  in a change, and the last attempt spent, freeze the settings. The plugin's module is pinned (never unloaded under
-  the thread); a wait on the event that fails is slept instead and said. `ini_thread_t::extend` sets, once, another
-  module's step in each pass, which waits 10 ms at least. No plugin calls it yet. Checked natively with ASan, UBSan
-  and TSan (`test/native/keeper_native.cc`), alone, and under wine with a thread of its own
+  in a change, and the last attempt spent, freeze the settings; a watch without a path starts no thread. The table,
+  live object, clamps and watch must live to the process's end. The plugin's module is pinned (never unloaded under the
+  thread); a wait on the event that fails is slept instead and said. `ini_thread_t::extend` sets, once, another
+  module's step in each pass, whose asked wait is taken as 10 ms at least. No plugin calls it yet. Checked natively
+  with ASan, UBSan and TSan (`test/native/keeper_native.cc`), alone, and under wine with a thread of its own
   (`test/ini_thread_test.cc`).
 - `ini/view.h` and `ini/keeper.h` (no Windows header): the settings thread's core without the thread, one code for
   every plugin. `ini_view_of` gives a plugin's table and `live3_settings_t` without its types; `ini_keeper_t` turns a

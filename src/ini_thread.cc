@@ -1,4 +1,4 @@
-// edplugin_common - the settings thread [u] on Windows (include/edplugin_common/ini/thread.h): its keeper, state and
+// edplugin_common - the settings thread on Windows (include/edplugin_common/ini/thread.h): its keeper, state and
 // thread, the ini's watch and reads by the library's file calls, the wait on its event, its lines logged.
 #include <edplugin_common/file/file.h>
 #include <edplugin_common/guard/guard.h>
@@ -74,7 +74,7 @@ namespace edplugin_common
       {
       ini_thread_t & t{*static_cast<ini_thread_t *>(arg)};
       DWORD const result{run_guarded_thread("settings", &body, arg, t.attempts())};
-      // the body never returns: here only after its last attempt
+      // the body never returns: here only after its last attempt, or after a stack overflow (not started again)
       std::vector<std::string> lines;
       t.attempts_spent(lines);
       log_lines(t, lines);
@@ -82,10 +82,17 @@ namespace edplugin_common
       }
     }  // namespace
 
-  // what was made before a failure is never deleted, as when the thread runs (the keeper's destructor is not ours)
+  // what was made before a failure is never deleted, as when the thread runs (the keeper's destructor is not ours);
+  // only the event is closed, by a failure after it
   auto ini_thread_start(ini_view_t const & view, ini_watch_t & watch, ini_told_t && told, int attempts) noexcept
     -> ini_thread_t *
     {
+    if(watch.path().empty())
+      {
+      log_line("settings: the settings thread not started: the ini's watch has no path; the ini is not read again "
+               "while the game runs");
+      return nullptr;
+      }
     std::string path;
     try
       {
@@ -130,6 +137,7 @@ namespace edplugin_common
       log_line("settings: the settings thread could not be made (error {}); the ini is not read again while the game "
                "runs",
                GetLastError());
+      CloseHandle(wake);
       return nullptr;
       }
     CloseHandle(thread);

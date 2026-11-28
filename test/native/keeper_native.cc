@@ -456,6 +456,12 @@ namespace
     s.wait = 0;
     check(t->pass(19'300, lines) == ini_thread_t::step_wait_min_ms and s.steps == 3,
           "ini_thread_t::pass: an extension asking no wait - the shortest wait");
+    f.look = ini_look_e::not_due;
+    check(t->pass(20'300, lines) == 0u and s.steps == 4,
+          "ini_thread_t::pass: the look due and an extension asking no wait - no wait (the look's own)");
+    s.wait = 5;
+    check(t->pass(20'300, lines) == 0u and s.steps == 5,
+          "ini_thread_t::pass: the look due and an extension asking a wait below the shortest - no wait");
     s.wait = 5000;
 
     lines.clear();
@@ -463,7 +469,7 @@ namespace
     f.look = ini_look_e::changed;
     f.text = "level = 0\n";
     check(k->frozen() and lines.size() == 1 and has_line(lines, ini_keeper_t::spent_line)
-            and t->pass(20'200, lines) == 1000u and s.steps == 4 and f.reads == 6 and l.acquire().generation == 3u,
+            and t->pass(21'200, lines) == 1000u and s.steps == 6 and f.reads == 6 and l.acquire().generation == 3u,
           "ini_thread_t::pass: frozen after the last attempt - nothing read, the extension's step still runs");
     check(k->take_lines_lost() == 0, "ini_thread_t: no line lost");
     ini_thread_peek_t::destroy(t);

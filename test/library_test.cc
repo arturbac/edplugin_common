@@ -259,6 +259,8 @@ auto main() -> int
   GetCurrentDirectoryW(MAX_PATH, here);
   context_tests(check, here);
   guard_tests(check, here);
+  // its settings threads that still run go on in every later check (a pass a second; nothing they log while their ini
+  // stays as it is)
   ini_thread_tests(check, here);
   // last: the log is off for the rest of the process after it
   guard_log_break_tests(check, here);
