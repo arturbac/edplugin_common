@@ -378,7 +378,19 @@ License: MIT (see `LICENSE`).
   (exit code 2) when a call does not come back in 20 s, with a line naming it. At the end, on every way, 2 s for a
   plugin's last report; the process ends by `TerminateProcess` (no modules' detach, as context_probe), exit code 0
   when every phase ran, 1 otherwise. Built at the top level with
-  `EDPLUGIN_COMMON_FAKE_ED` (ON by default); its `README.txt` beside it.
+  `EDPLUGIN_COMMON_FAKE_ED` (ON by default); its `README.txt` beside it. `tools/fake_ed/test.sh <build directory>
+  <scratch directory>` (environment `EDPLUGIN_COMMON_WINEPREFIX`, `WINE_COMMON_TIMEOUT` 120 unless set) runs it under
+  wine with edloader (`EDLOADER_DLL`) and `probe_plugin.dll`: r1 the probe alone, and with `EDHM_DIR` (a copy of EDHM's
+  files without links: its dll, named by `EDHM_DLL`, `d3d11_edhm.dll` unless set, `d3dcompiler_47.dll`, `d3dx.ini`,
+  `EDHM-ini/`, `ShaderFixes/`; its `d3dx.ini` copied with `[Loader] target = fake_ed.exe`, as 3Dmigoto does not start
+  in an exe other than its target) r2a EDHM before the probe and r2b after it, each in a new directory with its own
+  `EDLOADER_DIR`; its `RUN.txt` has the wine version, the library's commit, the sha256 of every file put in it,
+  fake_ed's exit code and the files the run made. A run passes when fake_ed ran every phase, edloader's chain is the list's, made
+  the device and no element stopped calling on, the probe attached its three plugins and reported, saw 3Dmigoto before
+  it (r2a) or 3Dmigoto's wrapper as the context (r2b), no hook called itself again, and each plugin worked exactly the
+  `Draw` and `IASetPrimitiveTopology` calls of fake_ed's phases and at least their `ClearState` and `Flush` calls; EDHM
+  missing from the chain, the chain stopped or EDHM not calling on is said on a line of its own with edloader's lines
+  naming it. It uses the host's GPU and shows fake_ed's window, about 17 s a run; not part of `tools/test.sh`.
 - `tools/probe_plugin/` - `probe_plugin.dll`, an edloader plugin for the plugins' tests that only watches: a d3d11.dll
   proxy on edworld's skeleton (`src/proxy.cc` there): DllMain loads only the system d3d11; at the first export call the
   next d3d11 is `d3d11.dll` by name under edloader (`EDLOADER_CONFIG_DIR` given), the system copy without it; a second

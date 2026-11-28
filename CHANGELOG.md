@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `tools/fake_ed/test.sh`: fake_ed's runs under wine with edloader and `probe_plugin.dll`, r1 the probe alone, r2a and
+  r2b with EDHM (`EDHM_DIR`, its `d3dx.ini` copied with `[Loader] target = fake_ed.exe`) before and after it, each
+  run in a new directory with the sums of its files; the checks of a run in its header.
 - `tools/probe_plugin/`: `probe_plugin.dll` 1, an edloader plugin for the plugins' tests that only watches: a d3d11
   proxy on edworld's skeleton that attaches context_probe's three plugins' hooks to the first device's immediate
   context and reports every second what they counted, to `probe_plugin-<date>-<time>.txt` in edloader's folder of

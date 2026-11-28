@@ -26,6 +26,13 @@ Edloader's own files: edloader reads its list from %USERPROFILE%\edloader or fro
 EDLOADER_DIR; a test sets EDLOADER_DIR to a folder of its own, so the usual installation's list is not used. Edloader
 still adds one line, EDLOADER_DIR=..., to %USERPROFILE%\edloader\logs\edloader.log.
 
+The runs under wine: tools/fake_ed/test.sh in the library's repository runs fake_ed.exe with edloader and
+probe_plugin.dll (tools/probe_plugin) alone (r1) and, given EDHM's files, with EDHM before the probe (r2a) and after it
+(r2b; EDHM's d3dx.ini copied with its [Loader] target set to fake_ed.exe, since 3Dmigoto does not start in an exe
+other than its target), each run in a new folder with its own EDLOADER_DIR, and the wine version, the library's
+commit, the sha256 of every file put in it and the files the run made in RUN.txt. Its header says what a run needs to
+pass.
+
 What it does not do: no network, no administrator rights, nothing written by itself but its result beside it; the
 game is never started. It ends without the plugins' unloading (as context_probe), so a plugin that would hang there
 does not hold the test.
