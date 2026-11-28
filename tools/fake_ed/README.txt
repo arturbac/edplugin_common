@@ -33,6 +33,19 @@ other than its target), each run in a new folder with its own EDLOADER_DIR, and 
 commit, the sha256 of every file put in it and the files the run made in RUN.txt. Its header says what a run needs to
 pass.
 
+The same runs on Windows (a virtual machine), with a zip and a .cmd made for the test (not in this repository): the
+zip has the files of the runs under wine (fake_ed.exe, edloader as d3d11.dll, probe_plugin.dll, EDHM's files with
+that d3dx.ini, and the three runs' edloader.txt). The .cmd copies the zip to a new folder on C:, checks its sha256,
+unpacks it and makes each run's folder: game\ with fake_ed.exe and edloader (and for r2a and r2b EDHM-ini and
+ShaderFixes), and root\, the run's EDLOADER_DIR, with its edloader.txt and plugins. It starts fake_ed.exe there with
+EDLOADER_WINDOW=test (no window of edloader's waits for a key), stopped after 120 s, and writes everything to a new
+file for each start in wyniki\ beside the .cmd: the Windows version, Defender's state before and its detections of
+the last hour after (also after a failed step), the sha256 of each run's exe, dlls and d3dx.ini, fake_ed's output and
+exit code; each run's logs (fake_ed's, edloader's, the probe's) go to a folder of that start there. It installs and
+deletes nothing; going back is deleting its folder on C:. Edloader adds an EDLOADER_DIR=... line to
+%USERPROFILE%\edloader\logs\edloader.log in each run and makes %USERPROFILE%\edloader (config, logs, plugins) when
+there is none. The checks of a run are test.sh's, made on the logs afterwards.
+
 What it does not do: no network, no administrator rights, nothing written by itself but its result beside it; the
 game is never started. It ends without the plugins' unloading (as context_probe), so a plugin that would hang there
 does not hold the test.
